@@ -70,12 +70,35 @@ module PerformJob
 end
 
 module RunCountHelper
-  def perform(*args)
-    Resque.redis.incr("restricted_job_run_count:#{self}")
+
+  def around_perform(*args)
+    begin
+      Resque.redis.set("restricted_job_started:#{self}:#{args.to_json}", true)
+      Resque.redis.incr("restricted_job_run_count:#{self}:#{args.to_json}")
+      yield
+    ensure
+      Resque.redis.set("restricted_job_ended#{self}:#{args.to_json}", true)
+    end
   end
 
-  def run_count
-    Resque.redis.get("restricted_job_run_count:#{self}").to_i
+  def perform(*args)
+  end
+
+  def run_count(*args)
+    Resque.redis.get("restricted_job_run_count:#{self}:#{args.to_json}").to_i
+  end
+
+  def total_run_count
+    keys = Resque.redis.keys("restricted_job_run_count:#{self}:*")
+    keys.inject(0) {|sum, k| sum + Resque.redis.get(k).to_i }
+  end
+
+  def started?(*args)
+    return Resque.redis.get("restricted_job_started#{self}:#{args.to_json}") == true
+  end
+
+  def ended?(*args)
+    return Resque.redis.get("restricted_job_ended#{self}:#{args.to_json}") == true
   end
 end
 
@@ -111,7 +134,6 @@ class ConcurrentRestrictionJob
   @queue = 'normal'
 
   def self.perform(*args)
-    super
     raise args.first if args.first
     sleep 0.2
   end
@@ -125,7 +147,6 @@ class MultipleConcurrentRestrictionJob
   @queue = 'normal'
 
   def self.perform(*args)
-    super
-    sleep 1
+    sleep 0.5
   end
 end

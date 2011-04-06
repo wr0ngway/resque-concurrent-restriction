@@ -96,11 +96,32 @@ describe Resque::Plugins::ConcurrentRestriction do
   context "#helpers" do
 
     it "should mark a job as runnable" do
-      ConcurrentRestrictionJob.runnables.should == []
-      ConcurrentRestrictionJob.mark_runnable(true)
-      ConcurrentRestrictionJob.runnables.should == [ConcurrentRestrictionJob.tracking_key]
-      ConcurrentRestrictionJob.mark_runnable(false)
-      ConcurrentRestrictionJob.runnables.should == []
+      IdentifiedRestrictionJob.runnables.should == []
+      IdentifiedRestrictionJob.runnables(:somequeue).should == []
+      IdentifiedRestrictionJob.runnables(:somequeue2).should == []
+
+      IdentifiedRestrictionJob.track_queue(IdentifiedRestrictionJob.tracking_key(1), :somequeue, :add)
+      IdentifiedRestrictionJob.track_queue(IdentifiedRestrictionJob.tracking_key(2), :somequeue2, :add)
+
+      IdentifiedRestrictionJob.mark_runnable(true, 1)
+      IdentifiedRestrictionJob.runnables(:somequeue).should == [IdentifiedRestrictionJob.tracking_key(1)]
+      IdentifiedRestrictionJob.runnables(:somequeue2).should == []
+      IdentifiedRestrictionJob.runnables.should == [IdentifiedRestrictionJob.tracking_key(1)]
+
+      IdentifiedRestrictionJob.mark_runnable(true, 2)
+      IdentifiedRestrictionJob.runnables(:somequeue).should == [IdentifiedRestrictionJob.tracking_key(1)]
+      IdentifiedRestrictionJob.runnables(:somequeue2).should == [IdentifiedRestrictionJob.tracking_key(2)]
+      IdentifiedRestrictionJob.runnables.sort.should == [IdentifiedRestrictionJob.tracking_key(1), IdentifiedRestrictionJob.tracking_key(2)].sort
+
+      IdentifiedRestrictionJob.mark_runnable(false, 1)
+      IdentifiedRestrictionJob.runnables(:somequeue).should == []
+      IdentifiedRestrictionJob.runnables(:somequeue2).should == [IdentifiedRestrictionJob.tracking_key(2)]
+      IdentifiedRestrictionJob.runnables.should == [IdentifiedRestrictionJob.tracking_key(2)]
+
+      IdentifiedRestrictionJob.mark_runnable(false, 2)
+      IdentifiedRestrictionJob.runnables(:somequeue).should == []
+      IdentifiedRestrictionJob.runnables(:somequeue2).should == []
+      IdentifiedRestrictionJob.runnables.should == []
     end
 
     it "should push jobs to the restriction queue" do
@@ -137,17 +158,14 @@ describe Resque::Plugins::ConcurrentRestriction do
   context "#stash_if_restricted" do
     
     it "should return false and mark running for job that is not restricted" do
-      ConcurrentRestrictionJob.mark_runnable(true)
       job = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.stash_if_restricted(job).should == false
       ConcurrentRestrictionJob.running_count.should == 1
-      ConcurrentRestrictionJob.runnables.should == [ConcurrentRestrictionJob.tracking_key]
     end
 
     it "should return true and not mark running for job that is restricted" do
       Resque.redis.set(ConcurrentRestrictionJob.running_count_key, 99)
       ConcurrentRestrictionJob.mark_runnable(false)
-      ConcurrentRestrictionJob.runnables.should == []
       job = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.stash_if_restricted(job).should == true
       ConcurrentRestrictionJob.running_count.should == 99
@@ -170,17 +188,17 @@ describe Resque::Plugins::ConcurrentRestriction do
     end
 
     it "should get a job if something runnable" do
-      ConcurrentRestrictionJob.mark_runnable(true)
       job1 = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.push_to_restriction_queue(job1)
+      ConcurrentRestrictionJob.mark_runnable(true)
       ConcurrentRestrictionJob.next_runnable_job('somequeue').should == job1
       ConcurrentRestrictionJob.restriction_queue("somequeue").should == []
     end
 
     it "should not get a job if something runnable on other queue" do
-      ConcurrentRestrictionJob.mark_runnable(true)
       job1 = Resque::Job.new("somequeue2", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.push_to_restriction_queue(job1)
+      ConcurrentRestrictionJob.mark_runnable(true)
       ConcurrentRestrictionJob.next_runnable_job('somequeue').should be_nil
       ConcurrentRestrictionJob.restriction_queue("somequeue2").should == [job1]
     end
@@ -190,15 +208,14 @@ describe Resque::Plugins::ConcurrentRestriction do
   context "#release_restriction" do
 
     it "should release restriction" do
-      ConcurrentRestrictionJob.mark_runnable(false)
       Resque.redis.set(ConcurrentRestrictionJob.running_count_key, 1)
       job = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.release_restriction(job)
       ConcurrentRestrictionJob.running_count.should == 0
-      ConcurrentRestrictionJob.runnables.should == [ConcurrentRestrictionJob.tracking_key]
     end
 
     it "should mark not runnable if it erroneously was" do
+      ConcurrentRestrictionJob.track_queue(ConcurrentRestrictionJob.tracking_key, :somequeue, :add)
       ConcurrentRestrictionJob.mark_runnable(true)
       Resque.redis.set(ConcurrentRestrictionJob.running_count_key, 2)
       job = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
@@ -212,7 +229,6 @@ describe Resque::Plugins::ConcurrentRestriction do
       job = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => []})
       ConcurrentRestrictionJob.release_restriction(job)
       ConcurrentRestrictionJob.running_count.should == 0
-      ConcurrentRestrictionJob.runnables.should == [ConcurrentRestrictionJob.tracking_key]
     end
 
   end
@@ -263,8 +279,11 @@ describe Resque::Plugins::ConcurrentRestriction do
     end
 
     it "should track runnable_count" do
+      ConcurrentRestrictionJob.track_queue(ConcurrentRestrictionJob.tracking_key, :somequeue, :add)
+      ConcurrentRestrictionJob.track_queue(ConcurrentRestrictionJob.tracking_key, :somequeue2, :add)
+      IdentifiedRestrictionJob.track_queue(IdentifiedRestrictionJob.tracking_key(1), :somequeue, :add)
       ConcurrentRestrictionJob.mark_runnable(true)
-      IdentifiedRestrictionJob.mark_runnable(true)
+      IdentifiedRestrictionJob.mark_runnable(true, 1)
       stats = IdentifiedRestrictionJob.stats
       stats[:runnable_count].should == 2
     end

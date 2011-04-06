@@ -37,6 +37,11 @@ module Resque
         "concurrent:queue:#{queue}:#{parts[2..-1].join(':')}"
       end
 
+      def restriction_queue_availability_key(tracking_key)
+        parts = tracking_key.split(":")
+        "concurrent:queue_availability:#{parts[2..-1].join(':')}"
+      end
+
       # The key that groups all jobs of the same restriction_identifier together
       # so that we can work on any of those jobs if they are runnable
       # Stored in runnables set, and used to build keys for each queue where jobs
@@ -46,8 +51,9 @@ module Resque
       end
 
       # The key to the redis set where we keep a list of runnable tracking_keys
-      def runnables_key
-        "concurrent:runnable"
+      def runnables_key(queue=nil)
+        key = ":#{queue}" if queue
+        "concurrent:runnable#{key}"
       end
 
       # Encodes the job intot he restriction queue
@@ -62,18 +68,37 @@ module Resque
         Resque::Job.new(item['queue'], item['payload']) if item
       end
 
+      # The restriction queues that have data for each tracking key
+      # Adds/Removes the queue to the list of queues for that tracking key
+      # so we can quickly tell in next_runnable_job if a runnable job exists on a
+      # specific restriction queue
+      def track_queue(tracking_key, queue, action)
+        case action
+          when :add then Resque.redis.send(:sadd, restriction_queue_availability_key(tracking_key), queue)
+          when :remove then Resque.redis.send(:srem, restriction_queue_availability_key(tracking_key), queue)
+          else raise "Invalid action to ConcurrentRestriction.track_queue"
+        end
+      end
+
       # Pushes the job to the restriction queue
       def push_to_restriction_queue(job, location=:back)
+        tracking_key = tracking_key(*job.args)
+
         case location
-          when :back then Resque.redis.rpush(restriction_queue_key(job.queue, tracking_key(*job.args)), encode(job))
-          when :front then Resque.redis.lpush(restriction_queue_key(job.queue, tracking_key(*job.args)), encode(job))
+          when :back then Resque.redis.rpush(restriction_queue_key(job.queue, tracking_key), encode(job))
+          when :front then Resque.redis.lpush(restriction_queue_key(job.queue, tracking_key), encode(job))
           else raise "Invalid location to ConcurrentRestriction.push_to_restriction_queue"
         end
+
+        track_queue(tracking_key, job.queue, :add)
       end
 
       # Pops a job from the restriction queue
       def pop_from_restriction_queue(queue, tracking_key)
         str = Resque.redis.lpop(restriction_queue_key(queue, tracking_key))
+
+        track_queue(tracking_key, queue, :remove)
+
         decode(str)
       end
 
@@ -93,17 +118,29 @@ module Resque
       end
 
       # Returns the list of tracking_keys that have jobs waiting to run (are not over the concurrency limit)
-      def runnables
-        Resque.redis.smembers(runnables_key)
+      def runnables(queue=nil)
+        Resque.redis.smembers(runnables_key(queue))
       end
 
-      # Keeps track of which jobs are currently runnable
+      # Keeps track of which jobs are currently runnable, that is the
+      # tracking_key should have jobs on some restriction queue and
+      # also have less than concurrency_limit jobs running
       #
       def mark_runnable(runnable, *args)
+        tracking_key = tracking_key(*args)
+        queues = Resque.redis.smembers(restriction_queue_availability_key(tracking_key))
+        queues.each do |queue|
+          runnable_queues_key = runnables_key(queue)
+          if runnable
+            Resque.redis.sadd(runnable_queues_key, tracking_key)
+          else
+            Resque.redis.srem(runnable_queues_key, tracking_key)
+          end
+        end
         if runnable
-          Resque.redis.sadd(runnables_key, tracking_key(*args))
+          Resque.redis.sadd(runnables_key, tracking_key) if queues.size > 0
         else
-          Resque.redis.srem(runnables_key, tracking_key(*args))
+          Resque.redis.srem(runnables_key, tracking_key)
         end
       end
 
@@ -155,7 +192,7 @@ module Resque
             end
             trying = false
           else
-            sleep (rand(1000) * 0.001)
+            sleep (rand(1000) * 0.0001)
           end
         end
 
@@ -193,7 +230,7 @@ module Resque
 
       # Returns the next job that is runnable
       def next_runnable_job(queue)
-        tracking_key = Resque.redis.srandmember(runnables_key)
+        tracking_key = Resque.redis.srandmember(runnables_key(queue))
         return nil unless tracking_key
 
         job = nil
@@ -202,7 +239,7 @@ module Resque
         run_atomically(lock_key) do
             # since we don't have a lock when we get the runnable,
             # we need to check it again
-            still_runnable = Resque.redis.sismember(runnables_key, tracking_key)
+            still_runnable = Resque.redis.sismember(runnables_key(queue), tracking_key)
             if still_runnable
 
               job = pop_from_restriction_queue(queue, tracking_key)
