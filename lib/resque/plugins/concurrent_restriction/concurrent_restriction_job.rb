@@ -212,10 +212,11 @@ module Resque
                 klazz.mark_runnable(!restricted, *args)
 
                 # this shouldn't happen here since we should be only operating on
-                # a queue that is runnable, but lay it safe and repush if restricted
+                # a queue that is runnable, but play it safe and repush if restricted
                 if restricted
                   klazz.push_to_restriction_queue(job, :front)
                   Resque.redis.decr(count_key)
+                  job = nil
                 end
               end
             end
