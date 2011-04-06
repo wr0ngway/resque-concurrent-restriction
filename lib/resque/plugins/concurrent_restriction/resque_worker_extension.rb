@@ -67,7 +67,7 @@ module Resque
             # if no queues have a runnable job, then try to find a
             # runnable job from restriction queues
             # This also acquires a restriction lock, which is released in done_working
-            resque_job = ConcurrentRestrictionJob.next_runnable_job(queue) unless resque_job
+            resque_job = ConcurrentRestrictionJob.next_runnable_job(queue)
 
             return resque_job
           end
