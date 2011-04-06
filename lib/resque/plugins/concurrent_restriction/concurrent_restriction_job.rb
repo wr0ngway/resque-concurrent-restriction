@@ -9,7 +9,7 @@ module Resque
 
       # Allows the user to specify the unique key that identifies a set
       # of jobs that share a concurrency limit.  Defaults to the job class name
-      def restriction_identifier(*args)
+      def concurrent_identifier(*args)
         self.to_s
       end
 
@@ -21,18 +21,20 @@ module Resque
       # The key used to acquire a lock so we can operate on multiple
       # redis structures (runnables set, running_count) atomically
       def lock_key(tracking_key)
-        "#{tracking_key}:lock"
+        parts = tracking_key.split(":")
+        "concurrent:lock:#{parts[2..-1].join(':')}"
       end
 
       # The redis key used to store the number of currently running
       # jobs for the restriction_identifier
       def running_count_key(*args)
-        "restriction:count:#{self.restriction_identifier(*args)}"
+        "concurrent:count:#{self.concurrent_identifier(*args)}"
       end
 
       # The key for the redis list where restricted jobs for the given resque queue are stored
       def restriction_queue_key(queue, tracking_key)
-        "#{tracking_key}:#{queue}"
+        parts = tracking_key.split(":")
+        "concurrent:queue:#{queue}:#{parts[2..-1].join(':')}"
       end
 
       # The key that groups all jobs of the same restriction_identifier together
@@ -40,12 +42,12 @@ module Resque
       # Stored in runnables set, and used to build keys for each queue where jobs
       # for those queues are stored
       def tracking_key(*args)
-        "restriction:tracking:#{self.restriction_identifier(*args)}"
+        "concurrent:tracking:#{self.concurrent_identifier(*args)}"
       end
 
       # The key to the redis set where we keep a list of runnable tracking_keys
       def runnables_key
-        "restriction:runnable"
+        "concurrent:runnable"
       end
 
       # Encodes the job intot he restriction queue
@@ -122,6 +124,10 @@ module Resque
           old_expiration_time = Resque.redis.getset(lock_key, expiration_time)
           return false if old_expiration_time.to_i > Time.now.to_i
         end
+
+        # expire the lock eventually so we clean up keys - not needed to timeout
+        # lock, just to keep redis clean for locks that aren't being used'
+        Resque.redis.expireat(lock_key, expiration_time + 300)
 
         return true
       end
@@ -245,6 +251,48 @@ module Resque
         end
       end
 
+      def stats
+        results = {}
+
+        queue_keys = Resque.redis.keys("concurrent:queue:*")
+
+        queue_sizes = {}
+        ident_sizes = {}
+        queue_keys.each do |k|
+          parts = k.split(":")
+          ident = parts[3..-1].join(":")
+          queue_name = parts[2]
+          size = Resque.redis.llen(k)
+          queue_sizes[queue_name] ||= 0
+          queue_sizes[queue_name] += size
+          ident_sizes[ident] ||= 0
+          ident_sizes[ident] += size
+        end
+
+        count_keys = Resque.redis.keys("concurrent:count:*")
+        running_counts = {}
+        count_keys.each do |k|
+          parts = k.split(":")
+          ident = parts[2..-1].join(":")
+          running_counts[ident] = Resque.redis.get(k).to_i
+        end
+
+        lock_keys = Resque.redis.keys("concurrent:lock:*")
+        lock_count = lock_keys.size
+
+        runnable_count = Resque.redis.scard(runnables_key)
+
+        return {
+            :queue_totals => {
+                :by_queue_name => queue_sizes,
+                :by_identifier => ident_sizes
+            },
+            :running_counts => running_counts,
+            :lock_count => lock_count,
+            :runnable_count => runnable_count,
+        }
+        
+      end
 
     end
 

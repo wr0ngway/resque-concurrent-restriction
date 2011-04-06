@@ -217,4 +217,58 @@ describe Resque::Plugins::ConcurrentRestriction do
 
   end
 
+  context "#stats" do
+    
+    it "should have blank info when nothing going on" do
+      stats = ConcurrentRestrictionJob.stats
+      stats[:queue_totals][:by_queue_name].should == {}
+      stats[:queue_totals][:by_identifier].should == {}
+      stats[:running_counts].should == {}
+      stats[:lock_count].should == 0
+      stats[:runnable_count].should == 0
+    end
+
+    it "should track queue_totals" do
+      job1 = Resque::Job.new("queue1", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      job2 = Resque::Job.new("queue2", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      job3 = Resque::Job.new("queue1", {"class" => "IdentifiedRestrictionJob", "args" => [2]})
+      job4 = Resque::Job.new("queue2", {"class" => "IdentifiedRestrictionJob", "args" => [2]})
+      job5 = Resque::Job.new("queue3", {"class" => "ConcurrentRestrictionJob", "args" => []})
+
+      IdentifiedRestrictionJob.push_to_restriction_queue(job1)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job2)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job3)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job4)
+      ConcurrentRestrictionJob.push_to_restriction_queue(job5)
+
+      stats = IdentifiedRestrictionJob.stats
+      stats[:queue_totals][:by_queue_name].should == {"queue1" => 2, "queue2" => 2, "queue3" => 1}
+      stats[:queue_totals][:by_identifier].should == {"IdentifiedRestrictionJob:1" => 2, "IdentifiedRestrictionJob:2" => 2, "ConcurrentRestrictionJob" => 1}
+    end
+
+    it "should track running_counts" do
+      Resque.redis.set(IdentifiedRestrictionJob.running_count_key(1), 2)
+      Resque.redis.set(IdentifiedRestrictionJob.running_count_key(2), 3)
+      Resque.redis.set(ConcurrentRestrictionJob.running_count_key, 4)
+      stats = IdentifiedRestrictionJob.stats
+      stats[:running_counts].should == {"IdentifiedRestrictionJob:1" => 2, "IdentifiedRestrictionJob:2" => 3, "ConcurrentRestrictionJob" => 4}
+    end
+
+    it "should track lock_count" do
+      IdentifiedRestrictionJob.acquire_lock(IdentifiedRestrictionJob.lock_key(IdentifiedRestrictionJob.tracking_key(1)), Time.now.to_i)
+      IdentifiedRestrictionJob.acquire_lock(IdentifiedRestrictionJob.lock_key(IdentifiedRestrictionJob.tracking_key(2)), Time.now.to_i)
+      ConcurrentRestrictionJob.acquire_lock(ConcurrentRestrictionJob.lock_key(ConcurrentRestrictionJob.tracking_key), Time.now.to_i)
+      stats = IdentifiedRestrictionJob.stats
+      stats[:lock_count].should == 3
+    end
+
+    it "should track runnable_count" do
+      ConcurrentRestrictionJob.mark_runnable(true)
+      IdentifiedRestrictionJob.mark_runnable(true)
+      stats = IdentifiedRestrictionJob.stats
+      stats[:runnable_count].should == 2
+    end
+
+  end
+
 end

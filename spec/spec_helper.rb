@@ -1,4 +1,5 @@
 require 'rspec'
+require 'ap'
 
 spec_dir = File.dirname(File.expand_path(__FILE__))
 REDIS_CMD = "redis-server #{spec_dir}/redis-test.conf"
@@ -52,6 +53,20 @@ module PerformJob
     end
   end
 
+  def dump_redis
+    result = {}
+    Resque.redis.keys("*").each do |key|
+      type = Resque.redis.type(key)
+      result[key] = case type
+        when 'string' then Resque.redis.get(key)
+        when 'list' then Resque.redis.lrange(key, 0, -1)
+        when 'set' then Resque.redis.smembers(key)
+        else type
+      end
+    end
+    return result
+  end
+
 end
 
 module RunCountHelper
@@ -82,7 +97,7 @@ class IdentifiedRestrictionJob
   concurrent 1
   @queue = 'normal'
 
-  def self.restriction_identifier(*args)
+  def self.concurrent_identifier(*args)
     [self.to_s, args.first].join(":")
   end
 
