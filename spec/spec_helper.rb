@@ -77,11 +77,12 @@ module RunCountHelper
       Resque.redis.incr("restricted_job_run_count:#{self}:#{args.to_json}")
       yield
     ensure
-      Resque.redis.set("restricted_job_ended#{self}:#{args.to_json}", true)
+      Resque.redis.set("restricted_job_ended:#{self}:#{args.to_json}", true)
     end
   end
 
   def perform(*args)
+    #puts "Running job #{self}:#{args}"
   end
 
   def run_count(*args)
