@@ -4,23 +4,23 @@ module Resque
 
       # Redis Data Structures
       #
-      # concurrent:lock:tracking_id => timestamp
+      # concurrent.lock.tracking_id => timestamp
       #   Maintains the distributed lock for the tracking_key to ensure
       #   atomic modification of other data structures
       #
-      # concurrent:count:tracking_id => count
+      # concurrent.count.tracking_id => count
       #   The count of currently running jobs for the tracking_id
       #
-      # concurrent:queue:queue_name:tracking_id => List[job1, job2, ...]
+      # concurrent.queue.queue_name.tracking_id => List[job1, job2, ...]
       #   The queue of items that is currently unable to run due to count being exceeded
       #
-      # concurrent:queue_availability:tracking_key => Set[queue_name1, queue_name2, ...]
+      # concurrent.queue_availability.tracking_key => Set[queue_name1, queue_name2, ...]
       #   Maintains the set of queues that currently have something
       #   runnable for each tracking_id
       #
-      # concurrent:runnable[:queue_name] => Set[tracking_id1, tracking_id2, ...]
+      # concurrent.runnable[.queue_name] => Set[tracking_id1, tracking_id2, ...]
       #   Maintains the set of tracking_ids that have something
-      #   runnable for each queue (globally without :queue_name postfix in key)
+      #   runnable for each queue (globally without .queue_name postfix in key)
       #
       # The behavior has two points of entry:
       #
@@ -57,26 +57,26 @@ module Resque
       # The key used to acquire a lock so we can operate on multiple
       # redis structures (runnables set, running_count) atomically
       def lock_key(tracking_key)
-        parts = tracking_key.split(":")
-        "concurrent:lock:#{parts[2..-1].join(':')}"
+        parts = tracking_key.split(".")
+        "concurrent.lock.#{parts[2..-1].join('.')}"
       end
 
       # The redis key used to store the number of currently running
       # jobs for the restriction_identifier
       def running_count_key(tracking_key)
-        parts = tracking_key.split(":")
-        "concurrent:count:#{parts[2..-1].join(':')}"
+        parts = tracking_key.split(".")
+        "concurrent.count.#{parts[2..-1].join('.')}"
       end
 
       # The key for the redis list where restricted jobs for the given resque queue are stored
       def restriction_queue_key(tracking_key, queue)
-        parts = tracking_key.split(":")
-        "concurrent:queue:#{queue}:#{parts[2..-1].join(':')}"
+        parts = tracking_key.split(".")
+        "concurrent.queue.#{queue}.#{parts[2..-1].join('.')}"
       end
 
       def restriction_queue_availability_key(tracking_key)
-        parts = tracking_key.split(":")
-        "concurrent:queue_availability:#{parts[2..-1].join(':')}"
+        parts = tracking_key.split(".")
+        "concurrent.queue_availability.#{parts[2..-1].join('.')}"
       end
 
       # The key that groups all jobs of the same restriction_identifier together
@@ -85,18 +85,18 @@ module Resque
       # for those queues are stored
       def tracking_key(*args)
         id = concurrent_identifier(*args)
-        id = ":#{id}" if id && id.strip.size > 0
-        "concurrent:tracking:#{self.to_s}#{id}"
+        id = ".#{id}" if id && id.strip.size > 0
+        "concurrent.tracking.#{self.to_s}#{id}"
       end
 
       def tracking_class(tracking_key)
-        Resque.constantize(tracking_key.split(":")[2])
+        Resque.constantize(tracking_key.split(".")[2])
       end
 
       # The key to the redis set where we keep a list of runnable tracking_keys
       def runnables_key(queue=nil)
-        key = ":#{queue}" if queue
-        "concurrent:runnable#{key}"
+        key = ".#{queue}" if queue
+        "concurrent.runnable#{key}"
       end
 
       # Encodes the job intot he restriction queue
@@ -365,16 +365,45 @@ module Resque
         end
       end
 
+      # Resets everything to be runnable
+      def reset_restrictions
+
+
+        counts_reset = 0
+        count_keys = Resque.redis.keys("concurrent.count.*")
+        counts_reset = Resque.redis.del(*count_keys) if count_keys.size > 0
+
+        runnable_keys = Resque.redis.keys("concurrent.runnable*")
+        Resque.redis.del(*runnable_keys) if runnable_keys.size > 0
+
+        queues_enabled = 0
+        queue_keys = Resque.redis.keys("concurrent.queue.*")
+        queue_keys.each do |k|
+          if Resque.redis.llen(k) > 0
+            parts = k.split(".")
+            queue = parts[2]
+            ident = parts[3..-1].join('.')
+            tracking_key = "concurrent.tracking.#{ident}"
+            update_queues_available(tracking_key, queue, :add)
+            mark_runnable(tracking_key, true)
+            queues_enabled += 1
+          end
+        end
+
+        return counts_reset, queues_enabled
+        
+      end
+
       def stats
         results = {}
 
-        queue_keys = Resque.redis.keys("concurrent:queue:*")
+        queue_keys = Resque.redis.keys("concurrent.queue.*")
 
         queue_sizes = {}
         ident_sizes = {}
         queue_keys.each do |k|
-          parts = k.split(":")
-          ident = parts[3..-1].join(":")
+          parts = k.split(".")
+          ident = parts[3..-1].join(".")
           queue_name = parts[2]
           size = Resque.redis.llen(k)
           queue_sizes[queue_name] ||= 0
@@ -383,15 +412,15 @@ module Resque
           ident_sizes[ident] += size
         end
 
-        count_keys = Resque.redis.keys("concurrent:count:*")
+        count_keys = Resque.redis.keys("concurrent.count.*")
         running_counts = {}
         count_keys.each do |k|
-          parts = k.split(":")
-          ident = parts[2..-1].join(":")
+          parts = k.split(".")
+          ident = parts[2..-1].join(".")
           running_counts[ident] = Resque.redis.get(k).to_i
         end
 
-        lock_keys = Resque.redis.keys("concurrent:lock:*")
+        lock_keys = Resque.redis.keys("concurrent.lock.*")
         lock_count = lock_keys.size
 
         runnable_count = Resque.redis.scard(runnables_key)

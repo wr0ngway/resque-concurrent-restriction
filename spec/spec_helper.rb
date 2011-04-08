@@ -115,6 +115,15 @@ class RestrictionJob
   @queue = 'normal'
 end
 
+module Jobs
+  class NestedRestrictionJob
+    extend RunCountHelper
+    extend Resque::Plugins::ConcurrentRestriction
+    concurrent 1
+    @queue = 'normal'
+  end
+end
+
 class IdentifiedRestrictionJob
   extend RunCountHelper
   extend Resque::Plugins::ConcurrentRestriction

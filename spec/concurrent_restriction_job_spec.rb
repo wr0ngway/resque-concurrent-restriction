@@ -18,15 +18,17 @@ describe Resque::Plugins::ConcurrentRestriction do
 
   context "keys" do
     it "should always contain the classname in tracking_key" do
-      ConcurrentRestrictionJob.tracking_key.should == "concurrent:tracking:ConcurrentRestrictionJob"
-      IdentifiedRestrictionJob.tracking_key.should == "concurrent:tracking:IdentifiedRestrictionJob"
-      IdentifiedRestrictionJob.tracking_key(1).should == "concurrent:tracking:IdentifiedRestrictionJob:1"
+      ConcurrentRestrictionJob.tracking_key.should == "concurrent.tracking.ConcurrentRestrictionJob"
+      IdentifiedRestrictionJob.tracking_key.should == "concurrent.tracking.IdentifiedRestrictionJob"
+      IdentifiedRestrictionJob.tracking_key(1).should == "concurrent.tracking.IdentifiedRestrictionJob.1"
+      Jobs::NestedRestrictionJob.tracking_key.should == "concurrent.tracking.Jobs::NestedRestrictionJob"
     end
 
     it "should be able to get the class from tracking_key" do
       ConcurrentRestrictionJob.tracking_class(ConcurrentRestrictionJob.tracking_key).should == ConcurrentRestrictionJob
       IdentifiedRestrictionJob.tracking_class(IdentifiedRestrictionJob.tracking_key).should == IdentifiedRestrictionJob
       IdentifiedRestrictionJob.tracking_class(IdentifiedRestrictionJob.tracking_key(1)).should == IdentifiedRestrictionJob
+      Jobs::NestedRestrictionJob.tracking_class(Jobs::NestedRestrictionJob.tracking_key).should == Jobs::NestedRestrictionJob
     end
     
   end
@@ -418,6 +420,46 @@ describe Resque::Plugins::ConcurrentRestriction do
 
   end
 
+  context "#reset_restrictions" do
+    it "should do nothing when nothing is in redis" do
+      ConcurrentRestrictionJob.reset_restrictions.should == [0, 0]
+    end
+
+    it "should reset counts" do
+      ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 5)
+      IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(1), 5)
+      IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(2), 5)
+
+      ConcurrentRestrictionJob.reset_restrictions.should == [3, 0]
+      ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
+      IdentifiedRestrictionJob.running_count(IdentifiedRestrictionJob.tracking_key(1)).should == 0
+      IdentifiedRestrictionJob.running_count(IdentifiedRestrictionJob.tracking_key(2)).should == 0
+    end
+
+    it "should reset restriction queue runnable state" do
+      job1 = Resque::Job.new("queue1", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      job2 = Resque::Job.new("queue2", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      job3 = Resque::Job.new("queue1", {"class" => "IdentifiedRestrictionJob", "args" => [2]})
+      job4 = Resque::Job.new("queue2", {"class" => "IdentifiedRestrictionJob", "args" => [2]})
+      job5 = Resque::Job.new("queue3", {"class" => "ConcurrentRestrictionJob", "args" => []})
+
+      IdentifiedRestrictionJob.push_to_restriction_queue(job1)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job2)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job3)
+      IdentifiedRestrictionJob.push_to_restriction_queue(job4)
+      ConcurrentRestrictionJob.push_to_restriction_queue(job5)
+
+      ConcurrentRestrictionJob.reset_restrictions.should == [0, 5]
+      IdentifiedRestrictionJob.runnables(:queue1).sort.should == [IdentifiedRestrictionJob.tracking_key(1), IdentifiedRestrictionJob.tracking_key(2)]
+      IdentifiedRestrictionJob.runnables(:queue2).sort.should == [IdentifiedRestrictionJob.tracking_key(1), IdentifiedRestrictionJob.tracking_key(2)]
+      ConcurrentRestrictionJob.runnables(:queue3).sort.should == [ConcurrentRestrictionJob.tracking_key]
+
+      IdentifiedRestrictionJob.runnables.sort.should == [ConcurrentRestrictionJob.tracking_key, IdentifiedRestrictionJob.tracking_key(1), IdentifiedRestrictionJob.tracking_key(2)]
+
+    end
+
+  end
+
   context "#stats" do
     
     it "should have blank info when nothing going on" do
@@ -444,7 +486,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
       stats = IdentifiedRestrictionJob.stats
       stats[:queue_totals][:by_queue_name].should == {"queue1" => 2, "queue2" => 2, "queue3" => 1}
-      stats[:queue_totals][:by_identifier].should == {"IdentifiedRestrictionJob:1" => 2, "IdentifiedRestrictionJob:2" => 2, "ConcurrentRestrictionJob" => 1}
+      stats[:queue_totals][:by_identifier].should == {"IdentifiedRestrictionJob.1" => 2, "IdentifiedRestrictionJob.2" => 2, "ConcurrentRestrictionJob" => 1}
     end
 
     it "should track running_counts" do
@@ -452,7 +494,7 @@ describe Resque::Plugins::ConcurrentRestriction do
       IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(2), 3)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 4)
       stats = IdentifiedRestrictionJob.stats
-      stats[:running_counts].should == {"IdentifiedRestrictionJob:1" => 2, "IdentifiedRestrictionJob:2" => 3, "ConcurrentRestrictionJob" => 4}
+      stats[:running_counts].should == {"IdentifiedRestrictionJob.1" => 2, "IdentifiedRestrictionJob.2" => 3, "ConcurrentRestrictionJob" => 4}
     end
 
     it "should track lock_count" do
