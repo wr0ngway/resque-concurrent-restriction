@@ -388,6 +388,16 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue2").should == [job1]
     end
 
+    it "should get a job for right class when called through ConcurrentRestrictionJob" do
+      job1 = Resque::Job.new("somequeue", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(1), 99)
+      IdentifiedRestrictionJob.stash_if_restricted(job1)
+      IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(1), 0)
+
+      # Use ConcurrentRestrictionJob as thats what Resque::Worker::reserve extension has to use
+      ConcurrentRestrictionJob.next_runnable_job('somequeue').should == job1
+    end
+
   end
 
   context "#release_restriction" do
