@@ -15,6 +15,22 @@ describe Resque::Plugins::ConcurrentRestriction do
     Resque::Plugin.lint(Resque::Plugins::ConcurrentRestrictionJob)
   end
 
+
+  context "keys" do
+    it "should always contain the classname in tracking_key" do
+      ConcurrentRestrictionJob.tracking_key.should == "concurrent:tracking:ConcurrentRestrictionJob"
+      IdentifiedRestrictionJob.tracking_key.should == "concurrent:tracking:IdentifiedRestrictionJob"
+      IdentifiedRestrictionJob.tracking_key(1).should == "concurrent:tracking:IdentifiedRestrictionJob:1"
+    end
+
+    it "should be able to get the class from tracking_key" do
+      ConcurrentRestrictionJob.tracking_class(ConcurrentRestrictionJob.tracking_key).should == ConcurrentRestrictionJob
+      IdentifiedRestrictionJob.tracking_class(IdentifiedRestrictionJob.tracking_key).should == IdentifiedRestrictionJob
+      IdentifiedRestrictionJob.tracking_class(IdentifiedRestrictionJob.tracking_key(1)).should == IdentifiedRestrictionJob
+    end
+    
+  end
+
   context "encode/decode" do
 
     it "should encode jobs correctly" do

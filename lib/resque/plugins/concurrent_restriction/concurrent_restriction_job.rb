@@ -48,7 +48,8 @@ module Resque
       # for those queues are stored
       def tracking_key(*args)
         id = concurrent_identifier(*args)
-        "concurrent:tracking:#{self.to_s}#{':' + id if id}"
+        id = ":#{id}" if id && id.strip.size > 0
+        "concurrent:tracking:#{self.to_s}#{id}"
       end
 
       def tracking_class(tracking_key)
