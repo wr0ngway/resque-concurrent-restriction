@@ -82,6 +82,12 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.run_count.should == 2
   end
 
+  it "should be able to run more restricted jobs than limit in a row" do
+    7.times {|i| Resque.enqueue(RestrictionJob, i) }
+    7.times {|i| run_resque_queue(:normal) }
+    RestrictionJob.total_run_count.should == 7
+  end
+
   it "should preserve queue in restricted job on restriction queue" do
     RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
 
@@ -107,7 +113,6 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
   end
 
   it "should run multiple jobs concurrently" do
-    pending "figure this shit out"
     7.times {|i| Resque.enqueue(MultipleConcurrentRestrictionJob, i) }
 
     7.times do

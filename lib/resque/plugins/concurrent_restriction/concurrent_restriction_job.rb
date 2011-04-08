@@ -10,7 +10,6 @@ module Resque
       # Allows the user to specify the unique key that identifies a set
       # of jobs that share a concurrency limit.  Defaults to the job class name
       def concurrent_identifier(*args)
-        self.to_s
       end
 
       # Used to query what the limit the user has set
@@ -48,7 +47,12 @@ module Resque
       # Stored in runnables set, and used to build keys for each queue where jobs
       # for those queues are stored
       def tracking_key(*args)
-        "concurrent:tracking:#{self.concurrent_identifier(*args)}"
+        id = concurrent_identifier(*args)
+        "concurrent:tracking:#{self.to_s}#{':' + id if id}"
+      end
+
+      def tracking_class(tracking_key)
+        Resque.constantize(tracking_key.split(":")[2])
       end
 
       # The key to the redis set where we keep a list of runnable tracking_keys
@@ -300,7 +304,8 @@ module Resque
           # we need to check it again
           still_runnable = runnable?(tracking_key, queue)
           if still_runnable
-            job = pop_from_restriction_queue(tracking_key, queue)
+            klazz = tracking_class(tracking_key)
+            job = klazz.pop_from_restriction_queue(tracking_key, queue)
           end
 
         end

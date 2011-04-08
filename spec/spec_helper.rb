@@ -122,7 +122,7 @@ class IdentifiedRestrictionJob
   @queue = 'normal'
 
   def self.concurrent_identifier(*args)
-    [self.to_s, args.first].join(":")
+    args.first.to_s
   end
 
 end
