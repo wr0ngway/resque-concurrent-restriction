@@ -368,7 +368,6 @@ module Resque
       # Resets everything to be runnable
       def reset_restrictions
 
-
         counts_reset = 0
         count_keys = Resque.redis.keys("concurrent.count.*")
         counts_reset = Resque.redis.del(*count_keys) if count_keys.size > 0
