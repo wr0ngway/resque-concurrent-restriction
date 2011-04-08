@@ -2,6 +2,43 @@ module Resque
   module Plugins
     module ConcurrentRestriction
 
+      # Redis Data Structures
+      #
+      # concurrent:lock:tracking_id => timestamp
+      #   Maintains the distributed lock for the tracking_key to ensure
+      #   atomic modification of other data structures
+      #
+      # concurrent:count:tracking_id => count
+      #   The count of currently running jobs for the tracking_id
+      #
+      # concurrent:queue:queue_name:tracking_id => List[job1, job2, ...]
+      #   The queue of items that is currently unable to run due to count being exceeded
+      #
+      # concurrent:queue_availability:tracking_key => Set[queue_name1, queue_name2, ...]
+      #   Maintains the set of queues that currently have something
+      #   runnable for each tracking_id
+      #
+      # concurrent:runnable[:queue_name] => Set[tracking_id1, tracking_id2, ...]
+      #   Maintains the set of tracking_ids that have something
+      #   runnable for each queue (globally without :queue_name postfix in key)
+      #
+      # The behavior has two points of entry:
+      #
+      # When the Resque::Worker is looking for a job to run from a restriction
+      # queue, we use the queue_name to look up the set of tracking IDs that
+      # are currently runnable for that queue.  If we get a tracking id, we
+      # know that there is a restriction queue with something runnable in it,
+      # and we then use that tracking_id and queue to look up and pop something
+      # off of the restriction queue.
+      #
+      # When the Resque::Worker gets a job off of a normal resque queue, it uses
+      # the count to see if that job is currently restricted.  If not, it runs it
+      # as normal, but if it is restricted, then it sticks it on a restriction queue.
+      #
+      # In both cases, before a job is handed off to resque to be run, we increment
+      # the count so we can keep tracking of how many are currently running.  When
+      # the job finishes, we then decrement the count.
+
       # Used by the user in their job class to set the concurrency limit
       def concurrent(limit)
         @concurrent = limit
