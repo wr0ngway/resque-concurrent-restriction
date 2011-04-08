@@ -243,6 +243,7 @@ module Resque
       # We don't use watch/multi/exec as it doesn't work in a DistributedRedis setup
       def run_atomically(lock_key)
         trying = true
+        exp_backoff = 1
 
         while trying do
           lock_expiration = Time.now.to_i + 10
@@ -254,7 +255,8 @@ module Resque
             end
             trying = false
           else
-            sleep (rand(1000) * 0.0001)
+            sleep (rand(1000) * 0.0001 * exp_backoff)
+            exp_backoff *= 2
           end
         end
 
