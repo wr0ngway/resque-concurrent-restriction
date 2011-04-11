@@ -295,6 +295,25 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.runnables("somequeue2").sort.should == []
     end
 
+    it "should track queue_counts" do
+      ConcurrentRestrictionJob.queue_counts.should == {}
+
+      job1 = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => [1]})
+      job2 = Resque::Job.new("somequeue", {"class" => "ConcurrentRestrictionJob", "args" => [2]})
+      job3 = Resque::Job.new("somequeue2", {"class" => "ConcurrentRestrictionJob", "args" => [3]})
+
+      ConcurrentRestrictionJob.push_to_restriction_queue(job1)
+      ConcurrentRestrictionJob.push_to_restriction_queue(job2)
+      ConcurrentRestrictionJob.push_to_restriction_queue(job3)
+      ConcurrentRestrictionJob.queue_counts.should == {"somequeue"=>2, "somequeue2"=>1}
+
+      ConcurrentRestrictionJob.pop_from_restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue")
+      ConcurrentRestrictionJob.queue_counts.should == {"somequeue"=>1, "somequeue2"=>1}
+
+      ConcurrentRestrictionJob.pop_from_restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue")
+      ConcurrentRestrictionJob.pop_from_restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue2")
+      ConcurrentRestrictionJob.queue_counts.should == {"somequeue"=>0, "somequeue2"=>0}
+    end
   end
 
   context "#stash_if_restricted" do
@@ -456,6 +475,8 @@ describe Resque::Plugins::ConcurrentRestriction do
 
       IdentifiedRestrictionJob.runnables.sort.should == [ConcurrentRestrictionJob.tracking_key, IdentifiedRestrictionJob.tracking_key(1), IdentifiedRestrictionJob.tracking_key(2)]
 
+      ConcurrentRestrictionJob.queue_counts.should == {"queue1"=>2, "queue2"=>2, "queue3"=>1}
+
     end
 
   end
@@ -464,11 +485,21 @@ describe Resque::Plugins::ConcurrentRestriction do
     
     it "should have blank info when nothing going on" do
       stats = ConcurrentRestrictionJob.stats
-      stats[:queue_totals][:by_queue_name].should == {}
-      stats[:queue_totals][:by_identifier].should == {}
-      stats[:running_counts].should == {}
+      stats[:queues].should == {}
+      stats[:identifiers].should == {}
       stats[:lock_count].should == 0
       stats[:runnable_count].should == 0
+      estats = ConcurrentRestrictionJob.stats(true)
+      estats.should == stats
+    end
+
+    it "should not track identifiers when not extended" do
+      job1 = Resque::Job.new("queue1", {"class" => "IdentifiedRestrictionJob", "args" => [1]})
+      IdentifiedRestrictionJob.push_to_restriction_queue(job1)
+      IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(1), 2)
+      
+      stats = IdentifiedRestrictionJob.stats
+      stats[:identifiers].should == {}
     end
 
     it "should track queue_totals" do
@@ -484,17 +515,18 @@ describe Resque::Plugins::ConcurrentRestriction do
       IdentifiedRestrictionJob.push_to_restriction_queue(job4)
       ConcurrentRestrictionJob.push_to_restriction_queue(job5)
 
-      stats = IdentifiedRestrictionJob.stats
-      stats[:queue_totals][:by_queue_name].should == {"queue1" => 2, "queue2" => 2, "queue3" => 1}
-      stats[:queue_totals][:by_identifier].should == {"IdentifiedRestrictionJob.1" => 2, "IdentifiedRestrictionJob.2" => 2, "ConcurrentRestrictionJob" => 1}
+      stats = IdentifiedRestrictionJob.stats(true)
+      stats[:queues].should == {"queue1" => 2, "queue2" => 2, "queue3" => 1}
+
+      stats[:identifiers].should == {"IdentifiedRestrictionJob.1"=>{"queue1"=>1, "queue2"=>1}, "IdentifiedRestrictionJob.2"=>{"queue1"=>1, "queue2"=>1}, "ConcurrentRestrictionJob"=>{"queue3"=>1}}
     end
 
     it "should track running_counts" do
       IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(1), 2)
       IdentifiedRestrictionJob.set_running_count(IdentifiedRestrictionJob.tracking_key(2), 3)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 4)
-      stats = IdentifiedRestrictionJob.stats
-      stats[:running_counts].should == {"IdentifiedRestrictionJob.1" => 2, "IdentifiedRestrictionJob.2" => 3, "ConcurrentRestrictionJob" => 4}
+      stats = IdentifiedRestrictionJob.stats(true)
+      stats[:identifiers].should == {"IdentifiedRestrictionJob.1"=>{"running"=>2}, "IdentifiedRestrictionJob.2"=>{"running"=>3}, "ConcurrentRestrictionJob"=>{"running"=>4}}
     end
 
     it "should track lock_count" do

@@ -74,6 +74,12 @@ module Resque
         "concurrent.queue.#{queue}.#{parts[2..-1].join('.')}"
       end
 
+      # The redis key used to store the aggregate number of jobs
+      # in restriction queues by queue name
+      def queue_count_key
+        "concurrent.queue_counts"
+      end
+
       def restriction_queue_availability_key(tracking_key)
         parts = tracking_key.split(".")
         "concurrent.queue_availability.#{parts[2..-1].join('.')}"
@@ -139,6 +145,7 @@ module Resque
           else raise "Invalid location to ConcurrentRestriction.push_to_restriction_queue"
         end
 
+        increment_queue_count(job.queue)
         update_queues_available(tracking_key, job.queue, :add)
         mark_runnable(tracking_key, false)
       end
@@ -153,6 +160,8 @@ module Resque
           update_queues_available(tracking_key, queue, :remove)
           clear_runnable(tracking_key, queue)
         end
+
+        decrement_queue_count(queue)
 
         # increment by one to indicate that we are running
         # do this before update_queues_available so that the current queue gets cleaned
@@ -207,6 +216,26 @@ module Resque
         restricted = (value >= concurrent_limit)
         mark_runnable(tracking_key, !restricted)
         return restricted
+      end
+
+      def increment_queue_count(queue, by=1)
+        value = Resque.redis.hincrby(queue_count_key, queue, by)
+        return value
+      end
+
+      def decrement_queue_count(queue, by=1)
+        value = Resque.redis.hincrby(queue_count_key, queue, -by)
+        return value
+      end
+
+      def queue_counts
+        value = Resque.redis.hgetall(queue_count_key)
+        value = Hash[*value.collect {|k, v| [k, v.to_i] }.flatten]
+        return value
+      end
+
+      def set_queue_count(queue, count)
+        Resque.redis.hset(queue_count_key, queue, count)
       end
 
       def runnable?(tracking_key, queue)
@@ -375,14 +404,18 @@ module Resque
         runnable_keys = Resque.redis.keys("concurrent.runnable*")
         Resque.redis.del(*runnable_keys) if runnable_keys.size > 0
 
+        Resque.redis.del(queue_count_key)
         queues_enabled = 0
         queue_keys = Resque.redis.keys("concurrent.queue.*")
         queue_keys.each do |k|
-          if Resque.redis.llen(k) > 0
+          len = Resque.redis.llen(k)
+          if len > 0
             parts = k.split(".")
             queue = parts[2]
             ident = parts[3..-1].join('.')
             tracking_key = "concurrent.tracking.#{ident}"
+
+            increment_queue_count(queue, len)
             update_queues_available(tracking_key, queue, :add)
             mark_runnable(tracking_key, true)
             queues_enabled += 1
@@ -393,46 +426,46 @@ module Resque
         
       end
 
-      def stats
-        results = {}
+      def stats(extended=false)
+        result = {}
 
-        queue_keys = Resque.redis.keys("concurrent.queue.*")
+        result[:queues] = queue_counts
 
-        queue_sizes = {}
-        ident_sizes = {}
-        queue_keys.each do |k|
-          parts = k.split(".")
-          ident = parts[3..-1].join(".")
-          queue_name = parts[2]
-          size = Resque.redis.llen(k)
-          queue_sizes[queue_name] ||= 0
-          queue_sizes[queue_name] += size
-          ident_sizes[ident] ||= 0
-          ident_sizes[ident] += size
+        if extended
+          ident_sizes = {}
+          queue_keys = Resque.redis.keys("concurrent.queue.*")
+          queue_keys.each do |k|
+            parts = k.split(".")
+            ident = parts[3..-1].join(".")
+            queue_name = parts[2]
+            size = Resque.redis.llen(k)
+            ident_sizes[ident] ||= {}
+            ident_sizes[ident][queue_name] ||= 0
+            ident_sizes[ident][queue_name] += size
+          end
+
+          count_keys = Resque.redis.keys("concurrent.count.*")
+          running_counts = {}
+          count_keys.each do |k|
+            parts = k.split(".")
+            ident = parts[2..-1].join(".")
+            ident_sizes[ident] ||= {}
+            ident_sizes[ident]["running"] = Resque.redis.get(k).to_i
+          end
+
+          result[:identifiers] = ident_sizes
+        else
+          result[:identifiers] = {}
         end
 
-        count_keys = Resque.redis.keys("concurrent.count.*")
-        running_counts = {}
-        count_keys.each do |k|
-          parts = k.split(".")
-          ident = parts[2..-1].join(".")
-          running_counts[ident] = Resque.redis.get(k).to_i
-        end
 
         lock_keys = Resque.redis.keys("concurrent.lock.*")
-        lock_count = lock_keys.size
+        result[:lock_count] = lock_keys.size
 
         runnable_count = Resque.redis.scard(runnables_key)
+        result[:runnable_count] = runnable_count
 
-        return {
-            :queue_totals => {
-                :by_queue_name => queue_sizes,
-                :by_identifier => ident_sizes
-            },
-            :running_counts => running_counts,
-            :lock_count => lock_count,
-            :runnable_count => runnable_count,
-        }
+        return result
         
       end
 
