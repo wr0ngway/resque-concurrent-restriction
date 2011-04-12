@@ -14,7 +14,7 @@ module Resque
            end
          end
 
-        # Wrap reserve so we can pass the job to done_working to release restriction if neccessary
+        # Wrap reserve so we can pass the job to done_working to release restriction if necessary
         def reserve_with_restriction
           @job_in_progress = reserve_without_restriction
           return @job_in_progress
@@ -69,7 +69,6 @@ module Resque
             # This also acquires a restriction lock, which is released in done_working
             resque_job = ConcurrentRestrictionJob.next_runnable_job(queue)
 
-            return resque_job
           end
 
           # Return job or nil to move on to next queue if we couldn't get a job
