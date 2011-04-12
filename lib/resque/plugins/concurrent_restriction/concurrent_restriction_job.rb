@@ -1,6 +1,31 @@
+# To configure resque concurrent restriction, add something like the
+# following to an initializer (defaults shown):
+#
+#    Resque::Plugins::ConcurrentRestriction.configure do |config|
+#      # The lock timeout for the restriction queue lock
+#      config.lock_timeout = 60
+#      # The lock timeout for the count on running jobs
+#      config.running_count_timeout = 3*60*60
+#    end
+
 module Resque
   module Plugins
     module ConcurrentRestriction
+
+      # Allows configuring via class accessors
+      class << self
+        # optional
+        attr_accessor :lock_timeout, :running_count_timeout
+      end
+
+      # default values
+      self.lock_timeout = 60
+      self.running_count_timeout = 3*60*60
+
+      # Allows configuring via class accessors
+      def self.configure
+        yield self
+      end
 
       # Redis Data Structures
       #
@@ -185,7 +210,7 @@ module Resque
         Resque.redis.get(running_count_key(tracking_key)).to_i
       end
 
-      # Returns the number of jobs currently running
+      # Sets the number of jobs currently running
       def set_running_count(tracking_key, value)
         count_key = running_count_key(tracking_key)
         Resque.redis.set(count_key, value)
@@ -206,6 +231,10 @@ module Resque
         value = Resque.redis.incr(count_key)
         restricted = (value > concurrent_limit)
         mark_runnable(tracking_key, !restricted)
+        # We should only expire if we are not restricted - that
+        # way if stuck in a restricted state due to count never
+        # getting decremented, we eventually timeout and reset the count.
+        Resque.redis.expire(count_key, ConcurrentRestriction.running_count_timeout) if !restricted
         return restricted
       end
 
@@ -296,7 +325,7 @@ module Resque
         end
 
         # expire the lock eventually so we clean up keys - not needed to timeout
-        # lock, just to keep redis clean for locks that aren't being used'
+        # lock, just to keep redis clean for locks that aren't being used
         Resque.redis.expireat(lock_key, expiration_time + 300)
 
         return true
@@ -317,7 +346,7 @@ module Resque
         exp_backoff = 1
 
         while trying do
-          lock_expiration = Time.now.to_i + 10
+          lock_expiration = Time.now.to_i + ConcurrentRestriction.lock_timeout
           if acquire_lock(lock_key, lock_expiration)
             begin
               yield

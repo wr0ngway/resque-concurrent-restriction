@@ -192,4 +192,14 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.total_run_count.should == 3
   end
 
+  it "should timeout running count eventually" do
+    Resque::Plugins::ConcurrentRestriction.stub!(:running_count_timeout).and_return(1)
+    RestrictionJob.increment_running_count(RestrictionJob.tracking_key)
+    run_resque_job(RestrictionJob, :queue => :normal1)
+    RestrictionJob.total_run_count.should == 0
+    sleep 2
+    run_resque_job(RestrictionJob, :queue => :normal1)
+    run_resque_queue(:normal1)
+    RestrictionJob.total_run_count.should == 2
+  end
 end

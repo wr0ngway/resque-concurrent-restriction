@@ -15,6 +15,19 @@ describe Resque::Plugins::ConcurrentRestriction do
     Resque::Plugin.lint(Resque::Plugins::ConcurrentRestrictionJob)
   end
 
+  context "settings" do
+
+    it "should allow setting/getting global config" do
+      Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
+      Resque::Plugins::ConcurrentRestriction.configure do |config|
+        config.lock_timeout = 61
+      end
+      Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 61
+      Resque::Plugins::ConcurrentRestriction.lock_timeout = 60
+      Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
+    end
+
+  end
 
   context "keys" do
     it "should always contain the classname in tracking_key" do
@@ -180,7 +193,19 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.restricted?(ConcurrentRestrictionJob.tracking_key).should == false
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 1)
       ConcurrentRestrictionJob.restricted?(ConcurrentRestrictionJob.tracking_key).should == true
+    end
 
+    it "should expire running count when not restricted" do
+      Resque.redis.should_receive(:expire).with(ConcurrentRestrictionJob.running_count_key(ConcurrentRestrictionJob.tracking_key), Resque::Plugins::ConcurrentRestriction.running_count_timeout)
+      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+    end
+
+    it "should not expire running count when restricted" do
+      ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, ConcurrentRestrictionJob.concurrent_limit)
+      Resque.redis.should_not_receive(:expire)
+      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == true
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == true
     end
 
   end
