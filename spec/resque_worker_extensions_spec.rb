@@ -9,6 +9,7 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
 
   after(:each) do
     Resque.redis.lrange("failed", 0, -1).size.should == 0
+    Resque.redis.get("stat:failed").to_i.should == 0
   end
 
   it "should do nothing for no jobs" do
@@ -154,6 +155,7 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     Resque.redis.lrange("failed", 0, -1).size.should == 1
     ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
     Resque.redis.del("failed")
+    Resque.redis.del("stat:failed")
   end
 
   it "should handle jobs with custom restriction identifier" do
@@ -192,14 +194,4 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.total_run_count.should == 3
   end
 
-  it "should timeout running count eventually" do
-    Resque::Plugins::ConcurrentRestriction.stub!(:running_count_timeout).and_return(1)
-    RestrictionJob.increment_running_count(RestrictionJob.tracking_key)
-    run_resque_job(RestrictionJob, :queue => :normal1)
-    RestrictionJob.total_run_count.should == 0
-    sleep 2
-    run_resque_job(RestrictionJob, :queue => :normal1)
-    run_resque_queue(:normal1)
-    RestrictionJob.total_run_count.should == 2
-  end
 end

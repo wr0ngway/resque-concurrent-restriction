@@ -15,12 +15,11 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :lock_timeout, :running_count_timeout
+        attr_accessor :lock_timeout
       end
 
       # default values
       self.lock_timeout = 60
-      self.running_count_timeout = 3*60*60
 
       # Allows configuring via class accessors
       def self.configure
@@ -210,7 +209,7 @@ module Resque
         Resque.redis.get(running_count_key(tracking_key)).to_i
       end
 
-      # Sets the number of jobs currently running
+      # Returns the number of jobs currently running
       def set_running_count(tracking_key, value)
         count_key = running_count_key(tracking_key)
         Resque.redis.set(count_key, value)
@@ -231,10 +230,6 @@ module Resque
         value = Resque.redis.incr(count_key)
         restricted = (value > concurrent_limit)
         mark_runnable(tracking_key, !restricted)
-        # We should only expire if we are not restricted - that
-        # way if stuck in a restricted state due to count never
-        # getting decremented, we eventually timeout and reset the count.
-        Resque.redis.expire(count_key, ConcurrentRestriction.running_count_timeout) if !restricted
         return restricted
       end
 
@@ -325,7 +320,7 @@ module Resque
         end
 
         # expire the lock eventually so we clean up keys - not needed to timeout
-        # lock, just to keep redis clean for locks that aren't being used
+        # lock, just to keep redis clean for locks that aren't being used'
         Resque.redis.expireat(lock_key, expiration_time + 300)
 
         return true

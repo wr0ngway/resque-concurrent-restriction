@@ -9,6 +9,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
   after(:each) do
     Resque.redis.lrange("failed", 0, -1).size.should == 0
+    Resque.redis.get("stat:failed").to_i.should == 0
   end
 
   it "should follow the convention" do
@@ -193,19 +194,6 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.restricted?(ConcurrentRestrictionJob.tracking_key).should == false
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 1)
       ConcurrentRestrictionJob.restricted?(ConcurrentRestrictionJob.tracking_key).should == true
-    end
-
-    it "should expire running count when not restricted" do
-      Resque.redis.should_receive(:expire).with(ConcurrentRestrictionJob.running_count_key(ConcurrentRestrictionJob.tracking_key), Resque::Plugins::ConcurrentRestriction.running_count_timeout)
-      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == false
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
-    end
-
-    it "should not expire running count when restricted" do
-      ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, ConcurrentRestrictionJob.concurrent_limit)
-      Resque.redis.should_not_receive(:expire)
-      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == true
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == true
     end
 
   end
