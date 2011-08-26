@@ -18,7 +18,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
   context "settings" do
 
-    it "should allow setting/getting global config" do
+    it "should allow setting/getting global config for lock_timeout" do
       Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
       Resque::Plugins::ConcurrentRestriction.configure do |config|
         config.lock_timeout = 61
@@ -26,6 +26,16 @@ describe Resque::Plugins::ConcurrentRestriction do
       Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 61
       Resque::Plugins::ConcurrentRestriction.lock_timeout = 60
       Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
+    end
+
+    it "should allow setting/getting global config for restricted_before_queued" do
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
+      Resque::Plugins::ConcurrentRestriction.configure do |config|
+        config.restricted_before_queued = true
+      end
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == true
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued = false
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
     end
 
   end

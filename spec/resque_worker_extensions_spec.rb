@@ -59,6 +59,8 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
   end
 
   it "should prefer running a normal job over one on restriction queue" do
+    Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
+    
     RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
 
     run_resque_job(RestrictionJob, :queue => :normal)
@@ -75,6 +77,32 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).should == []
     NoRestrictionJob.run_count.should == 1
     RestrictionJob.run_count.should == 1
+
+  end
+
+  it "should prefer running a restricted job over normal one when option given" do
+    begin
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued = true
+
+      RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
+
+      run_resque_job(RestrictionJob, :queue => :normal)
+      RestrictionJob.run_count.should == 0
+
+      RestrictionJob.set_running_count(RestrictionJob.tracking_key, 0)
+      
+      run_resque_job(NoRestrictionJob, :queue => :normal)
+      RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).should == []
+      NoRestrictionJob.run_count.should == 0
+      RestrictionJob.run_count.should == 1
+
+      run_resque_queue(:normal)
+      RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).should == []
+      NoRestrictionJob.run_count.should == 1
+      RestrictionJob.run_count.should == 1
+    ensure
+      Resque::Plugins::ConcurrentRestriction.restricted_before_queued = false
+    end
   end
 
   it "should be able to run multiple restricted jobs in a row without exceeding restriction" do

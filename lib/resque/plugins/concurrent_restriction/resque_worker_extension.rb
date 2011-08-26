@@ -47,6 +47,26 @@ module Resque
         # Wrap reserve so we can move a job to restriction queue if it is restricted
         # This needs to be a class method
         def reserve_with_restriction(queue)
+          order = [:get_queued_job, :get_restricted_job]
+          order.reverse! if ConcurrentRestriction.restricted_before_queued
+
+          resque_job = nil
+          order.each do |m|
+            resque_job ||= self.send(m, queue)
+          end
+
+          # Return job or nil to move on to next queue if we couldn't get a job
+          return resque_job
+        end
+
+        def get_restricted_job(queue)
+          # Try to find a runnable job from restriction queues
+          # This also acquires a restriction lock, which is released in done_working
+          resque_job = ConcurrentRestrictionJob.next_runnable_job(queue)
+          return resque_job
+        end
+
+        def get_queued_job(queue)
           resque_job = reserve_without_restriction(queue)
 
           if resque_job
@@ -60,20 +80,10 @@ module Resque
               # Move on to next if job is restricted
               # If job is runnable, we keep the lock until done_working
               resque_job = nil if job_class.stash_if_restricted(resque_job)
-
             end
-            
-          else
-            # if no queues have a runnable job, then try to find a
-            # runnable job from restriction queues
-            # This also acquires a restriction lock, which is released in done_working
-            resque_job = ConcurrentRestrictionJob.next_runnable_job(queue)
-
           end
 
-          # Return job or nil to move on to next queue if we couldn't get a job
           return resque_job
-
         end
 
       end

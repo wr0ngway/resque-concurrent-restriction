@@ -4,8 +4,8 @@
 #    Resque::Plugins::ConcurrentRestriction.configure do |config|
 #      # The lock timeout for the restriction queue lock
 #      config.lock_timeout = 60
-#      # The lock timeout for the count on running jobs
-#      config.running_count_timeout = 3*60*60
+#      # Try to pick jobs off of the restricted queue before normal queues
+#      config.restricted_before_queued = true
 #    end
 
 module Resque
@@ -15,11 +15,12 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :lock_timeout
+        attr_accessor :lock_timeout, :restricted_before_queued
       end
 
       # default values
       self.lock_timeout = 60
+      self.restricted_before_queued = false
 
       # Allows configuring via class accessors
       def self.configure
