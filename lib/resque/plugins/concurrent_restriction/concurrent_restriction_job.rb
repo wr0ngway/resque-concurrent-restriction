@@ -351,7 +351,7 @@ module Resque
             end
             trying = false
           else
-            sleep (rand(1000) * 0.0001 * exp_backoff)
+            sleep(rand(1000) * 0.0001 * exp_backoff)
             exp_backoff *= 2
           end
         end
