@@ -130,7 +130,7 @@ module Resque
         "concurrent.runnable#{key}"
       end
 
-      # Encodes the job intot he restriction queue
+      # Encodes the job into the restriction queue
       def encode(job)
         item = {:queue => job.queue, :payload => job.payload}
         Resque.encode(item)
