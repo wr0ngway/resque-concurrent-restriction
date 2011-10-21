@@ -61,7 +61,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
     it "should encode jobs correctly" do
       job = Resque::Job.new("somequeue", {"class" => "RestrictionJob", "args" => [1, 2, 3]})
-      ConcurrentRestrictionJob.encode(job).should == '{"queue":"somequeue","payload":{"class":"RestrictionJob","args":[1,2,3]}}'
+      JSON.parse(ConcurrentRestrictionJob.encode(job)).should == JSON.parse('{"queue":"somequeue","payload":{"class":"RestrictionJob","args":[1,2,3]}}')
     end
 
     it "should decode jobs correctly" do

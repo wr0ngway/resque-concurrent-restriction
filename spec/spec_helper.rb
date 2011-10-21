@@ -14,7 +14,7 @@ require 'resque-concurrent-restriction'
 # Schedule the redis server for shutdown when tests are all finished.
 at_exit do
   pid = File.read("#{spec_dir}/redis.pid").to_i rescue nil
-  system ("kill -9 #{pid}") if pid != 0
+  system ("kill -9 #{pid}") if pid.to_i != 0
   File.delete("#{spec_dir}/redis.pid") rescue nil
   File.delete("#{spec_dir}/redis-server.log") rescue nil
   File.delete("#{spec_dir}/dump.rdb") rescue nil
