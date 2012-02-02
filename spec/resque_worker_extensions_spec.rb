@@ -143,37 +143,37 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
 
   it "should run multiple jobs concurrently" do
     7.times {|i| Resque.enqueue(MultipleConcurrentRestrictionJob, i) }
-
+  
     7.times do
        unless child = fork
-         Resque.redis = 'localhost:9736'
+         Resque.redis.client.connect
          run_resque_queue('*')
          exit!
        end
     end
     sleep 0.25
-
+  
     MultipleConcurrentRestrictionJob.total_run_count.should == 4
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 4
     MultipleConcurrentRestrictionJob.restriction_queue(MultipleConcurrentRestrictionJob.tracking_key, :normal).size.should == 3
-
+  
     Process.waitall
-
+  
     3.times do
        unless child = fork
-         Resque.redis = 'localhost:9736'
+         Resque.redis.client.connect
          run_resque_queue('*')
          exit!
        end
     end
     sleep 0.25
-
+  
     MultipleConcurrentRestrictionJob.total_run_count.should == 7
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 3
     MultipleConcurrentRestrictionJob.restriction_queue(MultipleConcurrentRestrictionJob.tracking_key, :normal).size.should == 0
-
+  
     Process.waitall
-
+  
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 0
     MultipleConcurrentRestrictionJob.total_run_count.should == 7
   end
