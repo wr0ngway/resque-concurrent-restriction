@@ -178,6 +178,43 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     MultipleConcurrentRestrictionJob.total_run_count.should == 7
   end
 
+  it "should run only one concurrent job" do
+    5.times {|i| Resque.enqueue(OneConcurrentRestrictionJob, i) }
+    5.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
+    OneConcurrentRestrictionJob.total_run_count.should == 1
+    OneConcurrentRestrictionJob.running_count(OneConcurrentRestrictionJob.tracking_key).should == 1
+    OneConcurrentRestrictionJob.restriction_queue(OneConcurrentRestrictionJob.tracking_key, :normal).size.should == 4
+
+    Process.waitall
+
+    2.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
+    OneConcurrentRestrictionJob.total_run_count.should == 2
+    OneConcurrentRestrictionJob.running_count(OneConcurrentRestrictionJob.tracking_key).should == 1
+    OneConcurrentRestrictionJob.restriction_queue(OneConcurrentRestrictionJob.tracking_key, :normal).size.should == 3
+
+    Process.waitall
+
+    OneConcurrentRestrictionJob.running_count(OneConcurrentRestrictionJob.tracking_key).should == 0
+    OneConcurrentRestrictionJob.total_run_count.should == 2
+
+  end
+
   it "should decrement execution number when concurrent job fails" do
     run_resque_job(ConcurrentRestrictionJob, "bad")
     Resque.redis.lrange("failed", 0, -1).size.should == 1
