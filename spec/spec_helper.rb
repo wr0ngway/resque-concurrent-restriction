@@ -167,3 +167,15 @@ class MultipleConcurrentRestrictionJob
     sleep 0.5
   end
 end
+
+class OneConcurrentRestrictionJob
+  extend RunCountHelper
+  extend Resque::Plugins::ConcurrentRestriction
+  concurrent 1
+
+  @queue = 'normal'
+
+  def self.perform(*args)
+    sleep 0.5
+  end
+end
