@@ -16,21 +16,21 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     run_resque_queue('*')
     Resque.redis.keys("restriction:*").should == []
   end
-  
+
   it "should run normal job without restriction" do
     run_resque_job(NoRestrictionJob, :queue => :normal, :inline => true)
     Resque.size(:normal).should == 0
     NoRestrictionJob.run_count.should == 1
     Resque.redis.keys("restriction:*").should == []
   end
-  
+
   it "should run a restricted job that is not currently restricted" do
     run_resque_job(RestrictionJob, :queue => :normal)
     Resque.size(:normal).should == 0
     RestrictionJob.run_count.should == 1
     RestrictionJob.running_count(RestrictionJob.tracking_key).should == 0
   end
-  
+
   it "should stash a restricted job that is currently restricted" do
     RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
 
@@ -60,7 +60,7 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
 
   it "should prefer running a normal job over one on restriction queue" do
     Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
-    
+
     RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
 
     run_resque_job(RestrictionJob, :queue => :normal)
@@ -90,7 +90,7 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
       RestrictionJob.run_count.should == 0
 
       RestrictionJob.set_running_count(RestrictionJob.tracking_key, 0)
-      
+
       run_resque_job(NoRestrictionJob, :queue => :normal)
       RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).should == []
       NoRestrictionJob.run_count.should == 0
@@ -141,39 +141,103 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
   end
 
-  it "should run multiple jobs concurrently" do
-    7.times {|i| Resque.enqueue(MultipleConcurrentRestrictionJob, i) }
-  
-    7.times do
-       unless child = fork
-         Resque.redis.client.connect
-         run_resque_queue('*')
-         exit!
-       end
+  it "should run only one concurrent job" do
+    5.times {|i| Resque.enqueue(OneConcurrentRestrictionJob, i) }
+    5.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
     end
     sleep 0.25
-  
+
+    OneConcurrentRestrictionJob.total_run_count.should == 1
+    OneConcurrentRestrictionJob.running_count(OneConcurrentRestrictionJob.tracking_key).should == 1
+    OneConcurrentRestrictionJob.restriction_queue(OneConcurrentRestrictionJob.tracking_key, :normal).size.should == 4
+
+    Process.waitall
+
+    2.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
+    OneConcurrentRestrictionJob.total_run_count.should == 2
+    OneConcurrentRestrictionJob.running_count(OneConcurrentRestrictionJob.tracking_key).should == 1
+    OneConcurrentRestrictionJob.restriction_queue(OneConcurrentRestrictionJob.tracking_key, :normal).size.should == 3
+
+  end
+
+  it "should run only two concurrent jobs" do
+    5.times {|i| Resque.enqueue(TwoConcurrentRestrictionJob, i) }
+    5.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
+    TwoConcurrentRestrictionJob.total_run_count.should == 2
+    TwoConcurrentRestrictionJob.running_count(TwoConcurrentRestrictionJob.tracking_key).should == 2
+    TwoConcurrentRestrictionJob.restriction_queue(TwoConcurrentRestrictionJob.tracking_key, :normal).size.should == 3
+
+    Process.waitall
+
+    2.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
+    TwoConcurrentRestrictionJob.total_run_count.should == 4
+    TwoConcurrentRestrictionJob.running_count(TwoConcurrentRestrictionJob.tracking_key).should == 2
+    TwoConcurrentRestrictionJob.restriction_queue(TwoConcurrentRestrictionJob.tracking_key, :normal).size.should == 1
+
+  end
+
+  it "should run multiple jobs concurrently" do
+    7.times {|i| Resque.enqueue(MultipleConcurrentRestrictionJob, i) }
+
+    7.times do
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
+    end
+    sleep 0.25
+
     MultipleConcurrentRestrictionJob.total_run_count.should == 4
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 4
     MultipleConcurrentRestrictionJob.restriction_queue(MultipleConcurrentRestrictionJob.tracking_key, :normal).size.should == 3
-  
+
     Process.waitall
-  
+
     3.times do
-       unless child = fork
-         Resque.redis.client.connect
-         run_resque_queue('*')
-         exit!
-       end
+      unless child = fork
+        Resque.redis.client.connect
+        run_resque_queue('*')
+        exit!
+      end
     end
     sleep 0.25
-  
+
     MultipleConcurrentRestrictionJob.total_run_count.should == 7
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 3
     MultipleConcurrentRestrictionJob.restriction_queue(MultipleConcurrentRestrictionJob.tracking_key, :normal).size.should == 0
-  
+
     Process.waitall
-  
+
     MultipleConcurrentRestrictionJob.running_count(MultipleConcurrentRestrictionJob.tracking_key).should == 0
     MultipleConcurrentRestrictionJob.total_run_count.should == 7
   end
