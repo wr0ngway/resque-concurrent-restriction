@@ -189,7 +189,6 @@ module Resque
         decrement_queue_count(queue)
 
         # increment by one to indicate that we are running
-        # do this before update_queues_available so that the current queue gets cleaned
         increment_running_count(tracking_key) if str
 
         decode(str)
@@ -226,10 +225,15 @@ module Resque
         return restricted
       end
 
+      # The value in redis is the number of jobs currently running
+      # If we increment past that, we are restricted.  Incrementing is only done
+      # after the job is cleared for execution due to checking the runnable
+      # state, and post increment we setup runnable for future jobs based on
+      # the new "restricted" value  
       def increment_running_count(tracking_key)
         count_key = running_count_key(tracking_key)
         value = Resque.redis.incr(count_key)
-        restricted = (value > concurrent_limit)
+        restricted = (value >= concurrent_limit)
         mark_runnable(tracking_key, !restricted)
         return restricted
       end
@@ -391,7 +395,7 @@ module Resque
         lock_key = lock_key(tracking_key)
 
         run_atomically(lock_key) do
-
+          
           # since we don't have a lock when we get the runnable,
           # we need to check it again
           still_runnable = runnable?(tracking_key, queue)
