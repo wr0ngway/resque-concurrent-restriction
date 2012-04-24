@@ -351,13 +351,10 @@ module Resque
 
         tries.times do
           lock_expiration = Time.now.to_i + ConcurrentRestriction.lock_timeout
-          p [Time.now.to_f, Process.pid, :start]
           if acquire_lock(lock_key, lock_expiration)
-            p [Time.now.to_f, Process.pid, :acquired]
             acquired_lock = true
             begin
               yield
-              p [Time.now.to_f, Process.pid, :end]              
             ensure
               release_lock(lock_key, lock_expiration)
             end
