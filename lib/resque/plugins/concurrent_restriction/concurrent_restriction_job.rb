@@ -4,6 +4,9 @@
 #    Resque::Plugins::ConcurrentRestriction.configure do |config|
 #      # The lock timeout for the restriction queue lock
 #      config.lock_timeout = 60
+#      # How many times to try to get a lock before giving up
+#      # Worker stays busy for: 2^tries * rand(100) * 0.001 (~30s-3000s)
+#      config.lock_tries = 10
 #      # Try to pick jobs off of the restricted queue before normal queues
 #      config.restricted_before_queued = true
 #    end
@@ -15,11 +18,12 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :lock_timeout, :restricted_before_queued
+        attr_accessor :lock_timeout, :lock_tries, :restricted_before_queued
       end
 
       # default values
       self.lock_timeout = 60
+      self.lock_tries = 15
       self.restricted_before_queued = false
 
       # Allows configuring via class accessors
@@ -341,25 +345,30 @@ module Resque
 
       # Uses a lock to ensure that a sequence of redis operations happen atomically
       # We don't use watch/multi/exec as it doesn't work in a DistributedRedis setup
-      def run_atomically(lock_key)
-        trying = true
+      def run_atomically(lock_key, tries=ConcurrentRestriction.lock_tries)
+        acquired_lock = false
         exp_backoff = 1
 
-        while trying do
+        tries.times do
           lock_expiration = Time.now.to_i + ConcurrentRestriction.lock_timeout
+          p [Time.now.to_f, Process.pid, :start]
           if acquire_lock(lock_key, lock_expiration)
+            p [Time.now.to_f, Process.pid, :acquired]
+            acquired_lock = true
             begin
               yield
+              p [Time.now.to_f, Process.pid, :end]              
             ensure
               release_lock(lock_key, lock_expiration)
             end
-            trying = false
+            break
           else
-            sleep(rand(1000) * 0.0001 * exp_backoff)
+            sleep(rand(100) * 0.001 * exp_backoff)
             exp_backoff *= 2
           end
         end
-
+        
+        return acquired_lock
       end
 
       # Pushes the job to restriction queue if it is restricted
@@ -368,11 +377,11 @@ module Resque
       # see a lower value and run their job.  This count gets decremented by call
       # to release_restriction when job completes
       def stash_if_restricted(job)
-        restricted = false
+        restricted = nil
         tracking_key = tracking_key(*job.args)
         lock_key = lock_key(tracking_key)
 
-        run_atomically(lock_key) do
+        did_run = run_atomically(lock_key) do
 
           restricted = restricted?(tracking_key)
           if restricted
@@ -382,7 +391,15 @@ module Resque
           end
 
         end
-
+        
+        # if run_atomically fails to acquire the lock, we need to put
+        # the job back on the queue for processing later and act restricted
+        # upstack so nothing gets run
+        if !did_run
+          restricted = true
+          job.recreate
+        end
+        
         return restricted
       end
 
