@@ -5,6 +5,8 @@ Resque Concurrent Restriction is a plugin for the [Resque][0] queueing system (h
 
 Resque Concurrent Restriction requires Resque 1.10 and redis 2.2
 
+[![Build Status](https://secure.travis-ci.org/wr0ngway/resque-concurrent-restriction.png)](http://travis-ci.org/wr0ngway/resque-concurrent-restriction)
+
 Install
 -------
 
