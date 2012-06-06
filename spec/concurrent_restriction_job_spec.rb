@@ -593,7 +593,7 @@ describe Resque::Plugins::ConcurrentRestriction do
       # we have to keep this splat limitation in mind when populating test data, too
       concurrent_count_keys = 200001.times.collect{ |i| ["concurrent.count.#{i}", "#{i}"] }.flatten
       concurrent_count_keys.each_slice(100000) do |slice|
-          Resque.redis.mset *slice
+        Resque.redis.mset *slice
       end
 
       concurrent_runnable_keys = 200001.times.collect{ |i| ["concurrent.runnable.#{i}", "#{i}"] }.flatten
