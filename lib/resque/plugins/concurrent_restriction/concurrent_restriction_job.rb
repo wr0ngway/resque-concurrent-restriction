@@ -442,10 +442,18 @@ module Resque
 
         counts_reset = 0
         count_keys = Resque.redis.keys("concurrent.count.*")
-        counts_reset = Resque.redis.del(*count_keys) if count_keys.size > 0
+        if count_keys.size > 0
+          count_keys.each_slice(100000) do |key_slice|
+            counts_reset += Resque.redis.del(*key_slice)
+          end
+        end
 
         runnable_keys = Resque.redis.keys("concurrent.runnable*")
-        Resque.redis.del(*runnable_keys) if runnable_keys.size > 0
+        if runnable_keys.size > 0
+          runnable_keys.each_slice(100000) do |runnable_slice|
+            Resque.redis.del(*runnable_slice)
+          end
+        end
 
         Resque.redis.del(queue_count_key)
         queues_enabled = 0
