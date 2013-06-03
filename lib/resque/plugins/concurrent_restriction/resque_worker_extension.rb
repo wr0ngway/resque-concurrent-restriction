@@ -37,6 +37,11 @@ module Resque
 
       module Job
 
+        # The default number of times to retry while attempting to get a job. Also, the maximum
+        # number of jobs that will be moved from a queue to its corresponding restricted queue
+        # each invocation of "get_queued_job"
+        DEFAULT_GET_QUEUED_JOB_RETRIES = 1
+
         def self.extended(receiver)
            class << receiver
              alias reserve_without_restriction reserve
@@ -67,21 +72,35 @@ module Resque
         end
 
         def get_queued_job(queue)
-          resque_job = reserve_without_restriction(queue)
+          # Bounded retry
+          1.upto(get_queued_job_retries) do |i|
+            resque_job = reserve_without_restriction(queue)
 
-          # Short-curcuit if a job was not found
-          return nil unless resque_job
+            # Short-curcuit if a job was not found
+            return if resque_job.nil?
 
-          # If there is a job on regular queues, then only run it if its not restricted
-          job_class = resque_job.payload_class
-          job_args = resque_job.args
+            # If there is a job on regular queues, then only run it if its not restricted
+            job_class = resque_job.payload_class
+            job_args = resque_job.args
 
-          # Return to work on job if not a restricted job
-          return resque_job unless job_class.is_a?(ConcurrentRestriction)
+            # Return to work on job if not a restricted job
+            return resque_job unless job_class.is_a?(ConcurrentRestriction)
 
-          # Move on to next if job is restricted
-          # If job is runnable, we keep the lock until done_working
-          job_class.stash_if_restricted(resque_job) ? nil : resque_job
+            # Keep trying if job is restricted. If job is runnable, we keep the lock until
+            # done_working
+            return resque_job unless job_class.stash_if_restricted(resque_job)
+          end
+
+          # Safety net, here in case we hit the upper bound and there are still queued items
+          return nil
+        end
+
+        protected
+
+        # Controls the number of times to retry while attempting to reserve a queued job. Added
+        # as a method so that it can easily be overridden in a derived class (minimal validation)
+        def get_queued_job_retries
+          (ENV['GET_QUEUED_JOB_RETRIES'] =~ /\A\d+\Z/ || DEFAULT_GET_QUEUED_JOB_RETRIES).to_i
         end
 
       end
