@@ -69,21 +69,19 @@ module Resque
         def get_queued_job(queue)
           resque_job = reserve_without_restriction(queue)
 
-          if resque_job
-            # If there is a job on regular queues, then only run it if its not restricted
+          # Short-curcuit if a job was not found
+          return nil unless resque_job
 
-            job_class = resque_job.payload_class
-            job_args = resque_job.args
+          # If there is a job on regular queues, then only run it if its not restricted
+          job_class = resque_job.payload_class
+          job_args = resque_job.args
 
-            # return to work on job if not a restricted job
-            if job_class.is_a?(ConcurrentRestriction)
-              # Move on to next if job is restricted
-              # If job is runnable, we keep the lock until done_working
-              resque_job = nil if job_class.stash_if_restricted(resque_job)
-            end
-          end
+          # Return to work on job if not a restricted job
+          return resque_job unless job_class.is_a?(ConcurrentRestriction)
 
-          return resque_job
+          # Move on to next if job is restricted
+          # If job is runnable, we keep the lock until done_working
+          job_class.stash_if_restricted(resque_job) ? nil : resque_job
         end
 
       end
