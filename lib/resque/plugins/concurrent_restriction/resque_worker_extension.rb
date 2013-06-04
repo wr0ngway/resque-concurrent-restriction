@@ -68,7 +68,7 @@ module Resque
 
         def get_queued_job(queue)
           # Bounded retry
-          1.upto(ConcurrentRestriction.get_queued_job_attempts) do |i|
+          1.upto(ConcurrentRestriction.reserve_queued_job_attempts) do |i|
             resque_job = reserve_without_restriction(queue)
 
             # Short-curcuit if a job was not found

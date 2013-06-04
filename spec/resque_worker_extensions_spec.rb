@@ -266,7 +266,7 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     Resque.size(:normal).should == 5
     RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).size.should == 0
 
-    Resque::Plugins::ConcurrentRestriction.get_queued_job_attempts = 3
+    Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts = 3
 
     run_resque_queue(:normal)
     RestrictionJob.run_count.should == 0

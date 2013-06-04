@@ -18,11 +18,11 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :get_queued_job_attempts, :lock_timeout, :lock_tries, :restricted_before_queued
+        attr_accessor :reserve_queued_job_attempts, :lock_timeout, :lock_tries, :restricted_before_queued
       end
 
       # default values
-      self.get_queued_job_attempts = 1
+      self.reserve_queued_job_attempts = 1
       self.lock_timeout = 60
       self.lock_tries = 15
       self.restricted_before_queued = false
