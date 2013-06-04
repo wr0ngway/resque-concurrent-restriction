@@ -67,23 +67,27 @@ module Resque
         end
 
         def get_queued_job(queue)
-          resque_job = reserve_without_restriction(queue)
+          # Bounded retry
+          1.upto(ConcurrentRestriction.reserve_queued_job_attempts) do |i|
+            resque_job = reserve_without_restriction(queue)
 
-          if resque_job
+            # Short-curcuit if a job was not found
+            return if resque_job.nil?
+
             # If there is a job on regular queues, then only run it if its not restricted
-
             job_class = resque_job.payload_class
             job_args = resque_job.args
 
-            # return to work on job if not a restricted job
-            if job_class.is_a?(ConcurrentRestriction)
-              # Move on to next if job is restricted
-              # If job is runnable, we keep the lock until done_working
-              resque_job = nil if job_class.stash_if_restricted(resque_job)
-            end
+            # Return to work on job if not a restricted job
+            return resque_job unless job_class.is_a?(ConcurrentRestriction)
+
+            # Keep trying if job is restricted. If job is runnable, we keep the lock until
+            # done_working
+            return resque_job unless job_class.stash_if_restricted(resque_job)
           end
 
-          return resque_job
+          # Safety net, here in case we hit the upper bound and there are still queued items
+          return nil
         end
 
       end
