@@ -1,3 +1,9 @@
+0.5.9 (06/04/2013)
+------------------
+
+Lower slice-size used during "reset_restrictions" from 100K to 10K (it was causing segfaults when testing) <b9a7b57>
+Merge pull request #5 from jzaleski/stash_restrictions_more_aggressively <a0c051f>
+
 0.5.8 (06/07/2012)
 ------------------
 
