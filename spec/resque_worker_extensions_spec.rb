@@ -259,14 +259,19 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.total_run_count.should == 3
   end
 
-  it "should override number of retries with environment variable" do
-    # Something.get_queued_job_retries.should == Resque::Plugins::ConcurrentRestriction::Job::DEFAULT_GET_QUEUED_JOB_RETRIES
-    # ENV['GET_QUEUED_JOB_RETRIES'] = 3
-    # Something.get_queued_job_retries.should == ENV['GET_QUEUED_JOB_RETRIES'].to_i
-  end
-
   it "should move multiple items to the restricted queue each iteration" do
-    # TODO: implement me!
+    RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
+
+    5.times {|i| Resque.enqueue(RestrictionJob, :queue => :normal)}
+    Resque.size(:normal).should == 5
+    RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).size.should == 0
+
+    Resque::Plugins::ConcurrentRestriction.get_queued_job_attempts = 3
+
+    run_resque_queue(:normal)
+    RestrictionJob.run_count.should == 0
+    Resque.size(:normal).should == 2
+    RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).size.should == 3
   end
 
 end
