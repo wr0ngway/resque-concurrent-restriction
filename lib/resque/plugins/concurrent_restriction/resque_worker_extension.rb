@@ -37,11 +37,6 @@ module Resque
 
       module Job
 
-        # The default number of times to retry while attempting to get a job. Also, the maximum
-        # number of jobs that will be moved from a queue to its corresponding restricted queue
-        # each invocation of "get_queued_job"
-        DEFAULT_GET_QUEUED_JOB_RETRIES = 1
-
         def self.extended(receiver)
            class << receiver
              alias reserve_without_restriction reserve
@@ -73,7 +68,7 @@ module Resque
 
         def get_queued_job(queue)
           # Bounded retry
-          1.upto(get_queued_job_retries) do |i|
+          1.upto(ConcurrentRestriction.get_queued_job_attempts) do |i|
             resque_job = reserve_without_restriction(queue)
 
             # Short-curcuit if a job was not found
@@ -93,14 +88,6 @@ module Resque
 
           # Safety net, here in case we hit the upper bound and there are still queued items
           return nil
-        end
-
-        protected
-
-        # Controls the number of times to retry while attempting to reserve a queued job. Added
-        # as a method so that it can easily be overridden in a derived class (minimal validation)
-        def get_queued_job_retries
-          (ENV['GET_QUEUED_JOB_RETRIES'] =~ /\A\d+\Z/ || DEFAULT_GET_QUEUED_JOB_RETRIES).to_i
         end
 
       end
