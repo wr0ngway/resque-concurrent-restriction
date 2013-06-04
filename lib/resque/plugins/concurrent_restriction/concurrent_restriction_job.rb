@@ -7,6 +7,10 @@
 #      # How many times to try to get a lock before giving up
 #      # Worker stays busy for: 2^tries * rand(100) * 0.001 (~30s-3000s)
 #      config.lock_tries = 10
+#      # Try this many times to reserve a job from a queue. Also, the maximum
+#      # number of jobs to move to the restricted queue during this process
+#      # before giving up
+#      config.reserve_queued_job_attempts = 10
 #      # Try to pick jobs off of the restricted queue before normal queues
 #      config.restricted_before_queued = true
 #    end
@@ -18,13 +22,13 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :reserve_queued_job_attempts, :lock_timeout, :lock_tries, :restricted_before_queued
+        attr_accessor :lock_timeout, :lock_tries, :reserve_queued_job_attempts, :restricted_before_queued
       end
 
       # default values
-      self.reserve_queued_job_attempts = 1
       self.lock_timeout = 60
       self.lock_tries = 15
+      self.reserve_queued_job_attempts = 1
       self.restricted_before_queued = false
 
       # Allows configuring via class accessors

@@ -28,6 +28,16 @@ describe Resque::Plugins::ConcurrentRestriction do
       Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
     end
 
+    it "should allow setting/getting global config for reserve_queued_job_attempts" do
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 1
+      Resque::Plugins::ConcurrentRestriction.configure do |config|
+        config.reserve_queued_job_attempts = 5
+      end
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 5
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts = 3
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 3
+    end
+
     it "should allow setting/getting global config for restricted_before_queued" do
       Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
       Resque::Plugins::ConcurrentRestriction.configure do |config|
