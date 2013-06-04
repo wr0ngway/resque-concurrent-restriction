@@ -259,4 +259,19 @@ describe Resque::Plugins::ConcurrentRestriction::Worker do
     RestrictionJob.total_run_count.should == 3
   end
 
+  it "should move multiple items to the restricted queue each iteration" do
+    RestrictionJob.set_running_count(RestrictionJob.tracking_key, 99)
+
+    5.times {|i| Resque.enqueue(RestrictionJob, :queue => :normal)}
+    Resque.size(:normal).should == 5
+    RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).size.should == 0
+
+    Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts = 3
+
+    run_resque_queue(:normal)
+    RestrictionJob.run_count.should == 0
+    Resque.size(:normal).should == 2
+    RestrictionJob.restriction_queue(RestrictionJob.tracking_key, :normal).size.should == 3
+  end
+
 end

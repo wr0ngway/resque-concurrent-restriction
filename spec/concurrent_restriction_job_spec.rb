@@ -28,6 +28,16 @@ describe Resque::Plugins::ConcurrentRestriction do
       Resque::Plugins::ConcurrentRestriction.lock_timeout.should == 60
     end
 
+    it "should allow setting/getting global config for reserve_queued_job_attempts" do
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 1
+      Resque::Plugins::ConcurrentRestriction.configure do |config|
+        config.reserve_queued_job_attempts = 5
+      end
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 5
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts = 3
+      Resque::Plugins::ConcurrentRestriction.reserve_queued_job_attempts.should == 3
+    end
+
     it "should allow setting/getting global config for restricted_before_queued" do
       Resque::Plugins::ConcurrentRestriction.restricted_before_queued.should == false
       Resque::Plugins::ConcurrentRestriction.configure do |config|
@@ -591,13 +601,13 @@ describe Resque::Plugins::ConcurrentRestriction do
       # It might be better to actually populate redis with a bunch keys but that makes the test pretty slow
 
       # we have to keep this splat limitation in mind when populating test data, too
-      concurrent_count_keys = 200001.times.collect{ |i| ["concurrent.count.#{i}", "#{i}"] }.flatten
-      concurrent_count_keys.each_slice(100000) do |slice|
+      concurrent_count_keys = 20001.times.collect{ |i| ["concurrent.count.#{i}", "#{i}"] }.flatten
+      concurrent_count_keys.each_slice(10000) do |slice|
         Resque.redis.mset *slice
       end
 
-      concurrent_runnable_keys = 200001.times.collect{ |i| ["concurrent.runnable.#{i}", "#{i}"] }.flatten
-      concurrent_runnable_keys.each_slice(100000) do |slice|
+      concurrent_runnable_keys = 20001.times.collect{ |i| ["concurrent.runnable.#{i}", "#{i}"] }.flatten
+      concurrent_runnable_keys.each_slice(10000) do |slice|
         Resque.redis.mset *slice
       end
 
@@ -605,7 +615,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
       lambda{ return_value = ConcurrentRestrictionJob.reset_restrictions }.should_not raise_exception
 
-      return_value.should == [200001, 0]
+      return_value.should == [20001, 0]
     end
 
   end
