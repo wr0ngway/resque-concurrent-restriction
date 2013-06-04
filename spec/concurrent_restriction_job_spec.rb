@@ -601,13 +601,13 @@ describe Resque::Plugins::ConcurrentRestriction do
       # It might be better to actually populate redis with a bunch keys but that makes the test pretty slow
 
       # we have to keep this splat limitation in mind when populating test data, too
-      concurrent_count_keys = 200001.times.collect{ |i| ["concurrent.count.#{i}", "#{i}"] }.flatten
-      concurrent_count_keys.each_slice(100000) do |slice|
+      concurrent_count_keys = 20001.times.collect{ |i| ["concurrent.count.#{i}", "#{i}"] }.flatten
+      concurrent_count_keys.each_slice(10000) do |slice|
         Resque.redis.mset *slice
       end
 
-      concurrent_runnable_keys = 200001.times.collect{ |i| ["concurrent.runnable.#{i}", "#{i}"] }.flatten
-      concurrent_runnable_keys.each_slice(100000) do |slice|
+      concurrent_runnable_keys = 20001.times.collect{ |i| ["concurrent.runnable.#{i}", "#{i}"] }.flatten
+      concurrent_runnable_keys.each_slice(10000) do |slice|
         Resque.redis.mset *slice
       end
 
@@ -615,7 +615,7 @@ describe Resque::Plugins::ConcurrentRestriction do
 
       lambda{ return_value = ConcurrentRestrictionJob.reset_restrictions }.should_not raise_exception
 
-      return_value.should == [200001, 0]
+      return_value.should == [20001, 0]
     end
 
   end
