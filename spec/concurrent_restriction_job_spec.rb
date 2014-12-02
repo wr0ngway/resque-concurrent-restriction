@@ -170,8 +170,8 @@ describe Resque::Plugins::ConcurrentRestriction do
       t3.join
 
       t1.join
-      did_run1.should be_false
-      did_run2.should be_true
+      did_run1.should be_falsey
+      did_run2.should be_truthy
     end
 
   end
@@ -218,7 +218,7 @@ describe Resque::Plugins::ConcurrentRestriction do
     end
 
     it "should increment running count" do
-      ConcurrentRestrictionJob.stub!(:concurrent_limit).and_return(2)
+      ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(2)
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
       ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 1
@@ -229,7 +229,7 @@ describe Resque::Plugins::ConcurrentRestriction do
     end
 
     it "should decrement running count" do
-      ConcurrentRestrictionJob.stub!(:concurrent_limit).and_return(2)
+      ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(2)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 3)
       ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == true
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 2
@@ -240,14 +240,14 @@ describe Resque::Plugins::ConcurrentRestriction do
     end
 
     it "should not decrement running count below 0" do
-      ConcurrentRestrictionJob.stub!(:concurrent_limit).and_return(1)
+      ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(1)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 0)
       ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
     end
 
     it "should be able to tell when restricted" do
-      ConcurrentRestrictionJob.stub!(:concurrent_limit).and_return(1)
+      ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(1)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 0)
       ConcurrentRestrictionJob.restricted?(ConcurrentRestrictionJob.tracking_key).should == false
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 1)
@@ -348,7 +348,7 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.push_to_restriction_queue(job1)
       ConcurrentRestrictionJob.push_to_restriction_queue(job2)
       ConcurrentRestrictionJob.push_to_restriction_queue(job3)
-      ConcurrentRestrictionJob.stub!(:concurrent_limit).and_return(5)
+      ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(5)
 
       ConcurrentRestrictionJob.pop_from_restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue")
       ConcurrentRestrictionJob.runnables.sort.should == [ConcurrentRestrictionJob.tracking_key]
