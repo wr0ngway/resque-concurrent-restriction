@@ -271,9 +271,7 @@ describe Resque::Plugins::ConcurrentRestriction do
       ConcurrentRestrictionJob.restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue").should == [job1, job2, job3]
       ConcurrentRestrictionJob.push_to_restriction_queue(job4, :front)
       ConcurrentRestrictionJob.restriction_queue(ConcurrentRestrictionJob.tracking_key, "somequeue").should == [job4, job1, job2, job3]
-      should raise_exception() do
-        ConcurrentRestrictionJob.push_to_restriction_queue(job1, :bad)
-      end
+      lambda { ConcurrentRestrictionJob.push_to_restriction_queue(job1, :bad) }.should raise_exception
     end
 
     it "should pop jobs from restriction queue" do
