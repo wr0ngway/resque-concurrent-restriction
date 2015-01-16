@@ -18,6 +18,10 @@
 module Resque
   module Plugins
     module ConcurrentRestriction
+      # Warning: The helpers module will be gone in Resque 2.x
+      # Resque::Helpers removed from Resque in 1.25, see:
+      # https://github.com/resque/resque/issues/1150#issuecomment-27942972
+      include Resque::Helpers
 
       # Allows configuring via class accessors
       class << self
@@ -130,7 +134,7 @@ module Resque
       end
 
       def tracking_class(tracking_key)
-        Resque.constantize(tracking_key.split(".")[2])
+        constantize(tracking_key.split(".")[2])
       end
 
       # The key to the redis set where we keep a list of runnable tracking_keys

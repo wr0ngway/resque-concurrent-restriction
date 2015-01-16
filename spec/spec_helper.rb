@@ -45,6 +45,7 @@ module PerformJob
   def run_resque_queue(queue, opts={})
     worker = Resque::Worker.new(queue)
     worker.very_verbose = true if opts[:verbose]
+    worker.term_child = true
 
     # do a single job then shutdown
     def worker.done_working
