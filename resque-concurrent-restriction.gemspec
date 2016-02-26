@@ -2,7 +2,6 @@
 $:.push File.expand_path("../lib", __FILE__)
 require 'resque/plugins/concurrent_restriction/version'
 
-
 Gem::Specification.new do |s|
   s.name        = "resque-concurrent-restriction"
   s.version     = Resque::Plugins::ConcurrentRestriction::VERSION
@@ -21,6 +20,7 @@ Gem::Specification.new do |s|
   s.require_paths = ["lib"]
 
   s.add_dependency("resque", '~> 1.25')
+  s.add_dependency("activesupport", '~> 3.2')
 
   s.add_development_dependency('rspec', '~> 2.5')
   s.add_development_dependency('awesome_print')
