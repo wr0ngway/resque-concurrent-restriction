@@ -15,13 +15,12 @@
 #      config.restricted_before_queued = true
 #    end
 
+require 'active_support'
+
 module Resque
   module Plugins
     module ConcurrentRestriction
-      # Warning: The helpers module will be gone in Resque 2.x
-      # Resque::Helpers removed from Resque in 1.25, see:
-      # https://github.com/resque/resque/issues/1150#issuecomment-27942972
-      include Resque::Helpers
+      include ::ActiveSupport::Inflector
 
       # Allows configuring via class accessors
       class << self
