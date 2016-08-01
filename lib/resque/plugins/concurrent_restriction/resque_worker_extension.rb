@@ -27,7 +27,7 @@ module Resque
         def done_working_with_restriction
           begin
             job_class = Helper.payload_class @job_in_progress
-            job_class.release_restriction(@job_in_progress) if Helper.restrict_concurrency? job_class
+            job_class.release_restriction(@job_in_progress) if Helper.restrict_concurrency? @job_in_progress
           ensure
             return done_working_without_restriction
           end
@@ -35,16 +35,24 @@ module Resque
       end
 
       module Helper
-        # ActiveJobs are an ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper
-        # Check the payload for the class we'd like them to be when they're run.
         def self.payload_class(job)
-          return job.payload_class if job.payload_class.is_a? ConcurrentRestriction
-          class_name = job.args[0]['job_class']
-          Object.const_get class_name
+          return job.payload_class unless active_job? job
+          args = job_args job
+          Object.const_get args['job_class']
         end
 
-        def self.restrict_concurrency?(job_class)
-          job_class.is_a? ConcurrentRestriction
+        # ActiveJobs are an ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper
+        def self.active_job?(job)
+          job.payload_class.is_a? ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper
+        end
+
+        def self.job_args(job)
+          return job.args unless active_job? job
+          job.args[0]['arguments']
+        end
+
+        def self.restrict_concurrency?(job)
+          payload_class(job).is_a? ConcurrentRestriction
         end
       end
 
@@ -87,8 +95,7 @@ module Resque
             return if resque_job.nil?
 
             # Return to work on job if not a restricted job
-            job_class = Helper.payload_class(resque_job)
-            return resque_job unless Helper.restrict_concurrency? job_class
+            return resque_job unless Helper.restrict_concurrency? resque_job
 
             # Keep trying if job is restricted. If job is runnable, we keep the lock until
             # done_working

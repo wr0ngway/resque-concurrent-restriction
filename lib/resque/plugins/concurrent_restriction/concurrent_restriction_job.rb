@@ -383,7 +383,7 @@ module Resque
       # to release_restriction when job completes
       def stash_if_restricted(job)
         restricted = nil
-        tracking_key = tracking_key(*job.args)
+        tracking_key = tracking_key(*Helper.job_args(job))
         lock_key = lock_key(tracking_key)
 
         did_run = run_atomically(lock_key) do
@@ -434,7 +434,7 @@ module Resque
 
       # Decrements the running_count - to be called at end of job
       def release_restriction(job)
-        tracking_key = tracking_key(*job.args)
+        tracking_key = tracking_key(*Helper.job_args(args))
         lock_key = lock_key(tracking_key)
 
         run_atomically(lock_key) do
