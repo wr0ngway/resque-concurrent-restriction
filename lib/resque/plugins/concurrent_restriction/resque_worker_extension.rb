@@ -26,22 +26,42 @@ module Resque
         # This needs to be a instance method
         def done_working_with_restriction
           begin
-            job_class = @job_in_progress.payload_class
-            job_class.release_restriction(@job_in_progress) if job_class.is_a?(ConcurrentRestriction)
+            job_class = Helper.payload_class @job_in_progress
+            job_class.release_restriction(@job_in_progress) if Helper.restrict_concurrency? @job_in_progress
           ensure
             return done_working_without_restriction
           end
         end
-        
+      end
+
+      module Helper
+        def self.payload_class(job)
+          return job.payload_class unless active_job? job
+          args = job_args job
+          Object.const_get args['job_class']
+        end
+
+        # ActiveJobs are an ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper
+        def self.active_job?(job)
+          job.payload_class.is_a? ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper
+        end
+
+        def self.job_args(job)
+          return job.args unless active_job? job
+          job.args[0]['arguments']
+        end
+
+        def self.restrict_concurrency?(job)
+          payload_class(job).is_a? ConcurrentRestriction
+        end
       end
 
       module Job
-
         def self.extended(receiver)
-           class << receiver
-             alias reserve_without_restriction reserve
-             alias reserve reserve_with_restriction
-           end
+          class << receiver
+            alias reserve_without_restriction reserve
+            alias reserve reserve_with_restriction
+          end
         end
 
         # Wrap reserve so we can move a job to restriction queue if it is restricted
@@ -74,16 +94,12 @@ module Resque
             # Short-curcuit if a job was not found
             return if resque_job.nil?
 
-            # If there is a job on regular queues, then only run it if its not restricted
-            job_class = resque_job.payload_class
-            job_args = resque_job.args
-
             # Return to work on job if not a restricted job
-            return resque_job unless job_class.is_a?(ConcurrentRestriction)
+            return resque_job unless Helper.restrict_concurrency? resque_job
 
             # Keep trying if job is restricted. If job is runnable, we keep the lock until
             # done_working
-            return resque_job unless job_class.stash_if_restricted(resque_job)
+            return resque_job unless job_class.stash_if_restricted resque_job
           end
 
           # Safety net, here in case we hit the upper bound and there are still queued items
