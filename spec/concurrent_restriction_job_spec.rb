@@ -220,29 +220,29 @@ describe Resque::Plugins::ConcurrentRestriction do
     it "should increment running count" do
       ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(2)
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
-      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 1
-      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == true
+      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == true
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 2
-      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key).should == true
+      ConcurrentRestrictionJob.increment_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == true
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 3
     end
 
     it "should decrement running count" do
       ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(2)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 3)
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == true
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == true
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 2
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 1
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
     end
 
     it "should not decrement running count below 0" do
       ConcurrentRestrictionJob.stub(:concurrent_limit).and_return(1)
       ConcurrentRestrictionJob.set_running_count(ConcurrentRestrictionJob.tracking_key, 0)
-      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key).should == false
+      ConcurrentRestrictionJob.decrement_running_count(ConcurrentRestrictionJob.tracking_key, 0).should == false
       ConcurrentRestrictionJob.running_count(ConcurrentRestrictionJob.tracking_key).should == 0
     end
 
