@@ -424,31 +424,39 @@ module Resque
       # keep the running count incremented so that other calls don't erroneously
       # see a lower value and run their job.  This count gets decremented by call
       # to release_restriction when job completes
-      def stash_if_restricted(job)
-        restricted = nil
-        tracking_key = tracking_key(*job.args)
-        lock_key = lock_key(tracking_key)
+       def stash_if_restricted(job)
+        if skip_restricted(job)
+          return false
+        else
+          restricted = nil
+          tracking_key = tracking_key(*job.args)
+          lock_key = lock_key(tracking_key)
 
-        did_run = run_atomically(lock_key) do
+          did_run = run_atomically(lock_key) do
 
-          restricted = restricted?(tracking_key)
-          if restricted
-            push_to_restriction_queue(job)
-          else
-            increment_running_count(tracking_key, job)
+            restricted = restricted?(tracking_key)
+            if restricted
+              push_to_restriction_queue(job)
+            else
+              increment_running_count(tracking_key, job)
+            end
+
           end
+          
+          # if run_atomically fails to acquire the lock, we need to put
+          # the job back on the queue for processing later and act restricted
+          # upstack so nothing gets run
+          if !did_run
+            restricted = true
+            job.recreate
+          end
+          
+          return restricted          
+        end
+      end
 
-        end
-        
-        # if run_atomically fails to acquire the lock, we need to put
-        # the job back on the queue for processing later and act restricted
-        # upstack so nothing gets run
-        if !did_run
-          restricted = true
-          job.recreate
-        end
-        
-        return restricted
+      def skip_restricted(job)
+        return false
       end
 
       # Returns the next job that is runnable
