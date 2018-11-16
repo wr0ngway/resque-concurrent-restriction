@@ -289,17 +289,23 @@ module Resque
       end
 
       def decrement_running_count(tracking_key, job)
-        if ConcurrentRestriction.tracking_type == 'set'
-          Resque.redis.send(:srem, running_key(tracking_key), encode(job))
-          value = Resque.redis.send(:scard, running_key(tracking_key))
-        elsif ConcurrentRestriction.tracking_type == 'count'
-          count_key = running_count_key(tracking_key)
-          value = Resque.redis.decr(count_key)
-          Resque.redis.set(count_key, 0) if value < 0
+        if skip_restricted(job)
+          restricted = false
+          mark_runnable(tracking_key, !restricted)
+          return restricted
+        else
+          if ConcurrentRestriction.tracking_type == 'set'
+            Resque.redis.send(:srem, running_key(tracking_key), encode(job))
+            value = Resque.redis.send(:scard, running_key(tracking_key))
+          elsif ConcurrentRestriction.tracking_type == 'count'
+            count_key = running_count_key(tracking_key)
+            value = Resque.redis.decr(count_key)
+            Resque.redis.set(count_key, 0) if value < 0
+          end
+          restricted = (value >= concurrent_limit)
+          mark_runnable(tracking_key, !restricted)
+          return restricted
         end
-        restricted = (value >= concurrent_limit)
-        mark_runnable(tracking_key, !restricted)
-        return restricted
       end
 
       def increment_queue_count(queue, by=1)
