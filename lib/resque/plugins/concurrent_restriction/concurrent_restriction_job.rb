@@ -82,6 +82,10 @@ module Resque
         @concurrent = limit
       end
 
+      def skip_restricted(job)
+        return false
+      end
+
       # Allows the user to specify the unique key that identifies a set
       # of jobs that share a concurrency limit.  Defaults to the job class name
       def concurrent_identifier(*args)
@@ -289,23 +293,17 @@ module Resque
       end
 
       def decrement_running_count(tracking_key, job)
-        if skip_restricted(job)
-          restricted = false
-          mark_runnable(tracking_key, !restricted)
-          return restricted
-        else
-          if ConcurrentRestriction.tracking_type == 'set'
-            Resque.redis.send(:srem, running_key(tracking_key), encode(job))
-            value = Resque.redis.send(:scard, running_key(tracking_key))
-          elsif ConcurrentRestriction.tracking_type == 'count'
-            count_key = running_count_key(tracking_key)
-            value = Resque.redis.decr(count_key)
-            Resque.redis.set(count_key, 0) if value < 0
-          end
-          restricted = (value >= concurrent_limit)
-          mark_runnable(tracking_key, !restricted)
-          return restricted
+        if ConcurrentRestriction.tracking_type == 'set'
+          Resque.redis.send(:srem, running_key(tracking_key), encode(job))
+          value = Resque.redis.send(:scard, running_key(tracking_key))
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          count_key = running_count_key(tracking_key)
+          value = Resque.redis.decr(count_key)
+          Resque.redis.set(count_key, 0) if value < 0
         end
+        restricted = (value >= concurrent_limit)
+        mark_runnable(tracking_key, !restricted)
+        return restricted
       end
 
       def increment_queue_count(queue, by=1)
@@ -461,10 +459,6 @@ module Resque
         end
       end
 
-      def skip_restricted(job)
-        return false
-      end
-
       # Returns the next job that is runnable
       def next_runnable_job(queue)
         tracking_key = get_next_runnable(queue)
@@ -491,14 +485,16 @@ module Resque
 
       # Decrements the running_count - to be called at end of job
       def release_restriction(job)
-        tracking_key = tracking_key(*job.args)
-        lock_key = lock_key(tracking_key)
+        if !skip_restricted(job)
+          tracking_key = tracking_key(*job.args)
+          lock_key = lock_key(tracking_key)
 
-        run_atomically(lock_key) do
+          run_atomically(lock_key) do
 
-          # decrement the count after a job has run
-          decrement_running_count(tracking_key, job)
+            # decrement the count after a job has run
+            decrement_running_count(tracking_key, job)
 
+          end
         end
       end
 
