@@ -481,7 +481,33 @@ module Resque
 
         return job
           
-      end
+      end   
+
+      # Returns the next job that is runnable
+      def next_runnable_job_random
+        keys = Resque.redis.keys("concurrent.runnable.*")
+        key = keys.sample()
+        queue = key.split("concurrent.runnable.")[1]
+        tracking_key = Resque.redis.srandmember(key)
+        return nil unless tracking_key
+
+        job = nil
+        lock_key = lock_key(tracking_key)
+        
+        run_atomically(lock_key) do
+          
+          # since we don't have a lock when we get the runnable,
+          # we need to check it again
+          still_runnable = runnable?(tracking_key, queue)
+          if still_runnable
+            klazz = tracking_class(tracking_key)
+            job = klazz.pop_from_restriction_queue(tracking_key, queue)
+          end
+
+        end
+
+        return job          
+      end         
 
       # Decrements the running_count - to be called at end of job
       def release_restriction(job)
