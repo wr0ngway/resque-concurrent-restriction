@@ -25,7 +25,7 @@ module Resque
       # Allows configuring via class accessors
       class << self
         # optional
-        attr_accessor :lock_timeout, :lock_tries, :reserve_queued_job_attempts, :restricted_before_queued
+        attr_accessor :lock_timeout, :lock_tries, :reserve_queued_job_attempts, :restricted_before_queued, :tracking_type
       end
 
       # default values
@@ -33,6 +33,7 @@ module Resque
       self.lock_tries = 15
       self.reserve_queued_job_attempts = 1
       self.restricted_before_queued = false
+      self.tracking_type = 'count'
 
       # Allows configuring via class accessors
       def self.configure
@@ -81,6 +82,10 @@ module Resque
         @concurrent = limit
       end
 
+      def skip_restricted(job)
+        return false
+      end
+
       # Allows the user to specify the unique key that identifies a set
       # of jobs that share a concurrency limit.  Defaults to the job class name
       def concurrent_identifier(*args)
@@ -103,6 +108,12 @@ module Resque
       def running_count_key(tracking_key)
         parts = tracking_key.split(".")
         "concurrent.count.#{parts[2..-1].join('.')}"
+      end
+
+      # The key for the redis set of running jobs
+      def running_key(tracking_key)
+        parts = tracking_key.split(".")
+        "concurrent.running.#{parts[2..-1].join('.')}"
       end
 
       # The key for the redis list where restricted jobs for the given resque queue are stored
@@ -201,7 +212,7 @@ module Resque
         decrement_queue_count(queue)
 
         # increment by one to indicate that we are running
-        increment_running_count(tracking_key) if str
+        increment_running_count(tracking_key,decode(str)) if str
 
         decode(str)
       end
@@ -218,7 +229,11 @@ module Resque
 
       # Returns the number of jobs currently running
       def running_count(tracking_key)
-        Resque.redis.get(running_count_key(tracking_key)).to_i
+        if ConcurrentRestriction.tracking_type == 'set'
+          Resque.redis.send(:scard, running_key(tracking_key))
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          Resque.redis.get(running_count_key(tracking_key)).to_i
+        end
       end
 
       # Returns the number of jobs currently running
@@ -230,9 +245,31 @@ module Resque
         return restricted
       end
 
+      # This removes jobs from the running queue that may have gotten stuck
+      # due to a worker dying or being killed off before job could finish 
+      # This method is not possible to implement for a count configuration
+      # because there is no data to cross reference in the count key
+      def remove_hanging_jobs(tracking_key)
+        active = []
+        workers = Resque.redis.send(:smembers, 'workers')
+        workers.each do |worker|
+          job = Resque.redis.get("worker:#{worker}")
+          active << Resque.decode(job)["payload"] if !job.blank?
+        end
+        jobs = Resque.redis.send(:smembers, running_key(tracking_key))
+        jobs.each do |job|
+          Resque.redis.send(:srem, running_key(tracking_key), job) if !active.include?(Resque.decode(job)["payload"])
+        end
+      end
+
       def restricted?(tracking_key)
-        count_key = running_count_key(tracking_key)
-        value = Resque.redis.get(count_key).to_i
+        if ConcurrentRestriction.tracking_type == 'set'
+          remove_hanging_jobs(tracking_key)
+          value = Resque.redis.send(:scard, running_key(tracking_key))
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          count_key = running_count_key(tracking_key)
+          value = Resque.redis.get(count_key).to_i
+        end
         restricted = (value >= concurrent_limit)
         return restricted
       end
@@ -242,18 +279,28 @@ module Resque
       # after the job is cleared for execution due to checking the runnable
       # state, and post increment we setup runnable for future jobs based on
       # the new "restricted" value  
-      def increment_running_count(tracking_key)
-        count_key = running_count_key(tracking_key)
-        value = Resque.redis.incr(count_key)
+      def increment_running_count(tracking_key, job)
+        if ConcurrentRestriction.tracking_type == 'set'
+          Resque.redis.send(:sadd, running_key(tracking_key), encode(job))
+          value = Resque.redis.send(:scard, running_key(tracking_key))
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          count_key = running_count_key(tracking_key)
+          value = Resque.redis.incr(count_key)
+        end
         restricted = (value >= concurrent_limit)
         mark_runnable(tracking_key, !restricted)
         return restricted
       end
 
-      def decrement_running_count(tracking_key)
-        count_key = running_count_key(tracking_key)
-        value = Resque.redis.decr(count_key)
-        Resque.redis.set(count_key, 0) if value < 0
+      def decrement_running_count(tracking_key, job)
+        if ConcurrentRestriction.tracking_type == 'set'
+          Resque.redis.send(:srem, running_key(tracking_key), encode(job))
+          value = Resque.redis.send(:scard, running_key(tracking_key))
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          count_key = running_count_key(tracking_key)
+          value = Resque.redis.decr(count_key)
+          Resque.redis.set(count_key, 0) if value < 0
+        end
         restricted = (value >= concurrent_limit)
         mark_runnable(tracking_key, !restricted)
         return restricted
@@ -381,31 +428,35 @@ module Resque
       # keep the running count incremented so that other calls don't erroneously
       # see a lower value and run their job.  This count gets decremented by call
       # to release_restriction when job completes
-      def stash_if_restricted(job)
-        restricted = nil
-        tracking_key = tracking_key(*job.args)
-        lock_key = lock_key(tracking_key)
+       def stash_if_restricted(job)
+        if skip_restricted(job)
+          return false
+        else
+          restricted = nil
+          tracking_key = tracking_key(*job.args)
+          lock_key = lock_key(tracking_key)
 
-        did_run = run_atomically(lock_key) do
+          did_run = run_atomically(lock_key) do
 
-          restricted = restricted?(tracking_key)
-          if restricted
-            push_to_restriction_queue(job)
-          else
-            increment_running_count(tracking_key)
+            restricted = restricted?(tracking_key)
+            if restricted
+              push_to_restriction_queue(job)
+            else
+              increment_running_count(tracking_key, job)
+            end
+
           end
-
+          
+          # if run_atomically fails to acquire the lock, we need to put
+          # the job back on the queue for processing later and act restricted
+          # upstack so nothing gets run
+          if !did_run
+            restricted = true
+            job.recreate
+          end
+          
+          return restricted          
         end
-        
-        # if run_atomically fails to acquire the lock, we need to put
-        # the job back on the queue for processing later and act restricted
-        # upstack so nothing gets run
-        if !did_run
-          restricted = true
-          job.recreate
-        end
-        
-        return restricted
       end
 
       # Returns the next job that is runnable
@@ -430,26 +481,57 @@ module Resque
 
         return job
           
-      end
+      end   
+
+      # Returns the next job that is runnable
+      def next_runnable_job_random
+        keys = Resque.redis.keys("concurrent.runnable.*")
+        key = keys.sample()
+        queue = key.split("concurrent.runnable.")[1]
+        tracking_key = Resque.redis.srandmember(key)
+        return nil unless tracking_key
+
+        job = nil
+        lock_key = lock_key(tracking_key)
+        
+        run_atomically(lock_key) do
+          
+          # since we don't have a lock when we get the runnable,
+          # we need to check it again
+          still_runnable = runnable?(tracking_key, queue)
+          if still_runnable
+            klazz = tracking_class(tracking_key)
+            job = klazz.pop_from_restriction_queue(tracking_key, queue)
+          end
+
+        end
+
+        return job          
+      end         
 
       # Decrements the running_count - to be called at end of job
       def release_restriction(job)
-        tracking_key = tracking_key(*job.args)
-        lock_key = lock_key(tracking_key)
+        if !skip_restricted(job)
+          tracking_key = tracking_key(*job.args)
+          lock_key = lock_key(tracking_key)
 
-        run_atomically(lock_key) do
+          run_atomically(lock_key) do
 
-          # decrement the count after a job has run
-          decrement_running_count(tracking_key)
+            # decrement the count after a job has run
+            decrement_running_count(tracking_key, job)
 
+          end
         end
       end
 
       # Resets everything to be runnable
       def reset_restrictions
-
         counts_reset = 0
-        count_keys = Resque.redis.keys("concurrent.count.*")
+        if ConcurrentRestriction.tracking_type == 'set'
+          count_keys = Resque.redis.keys("concurrent.running.*")
+        elsif ConcurrentRestriction.tracking_type == 'count'
+          count_keys = Resque.redis.keys("concurrent.count.*")
+        end
         if count_keys.size > 0
           count_keys.each_slice(10000) do |key_slice|
             counts_reset += Resque.redis.del(*key_slice)
@@ -503,7 +585,11 @@ module Resque
             ident_sizes[ident][queue_name] += size
           end
 
-          count_keys = Resque.redis.keys("concurrent.count.*")
+          if ConcurrentRestriction.tracking_type == 'set'
+            count_keys = Resque.redis.keys("concurrent.running.*")
+          elsif ConcurrentRestriction.tracking_type == 'count'
+            count_keys = Resque.redis.keys("concurrent.count.*")
+          end
           running_counts = {}
           count_keys.each do |k|
             parts = k.split(".")
